@@ -26,3 +26,10 @@ Thumbs.db
 .DS_Store
 ~$*
 *.tmp
+
+# ===== Python =====
+__pycache__/
+*.pyc
+
+# ===== Reasonix 工具运行元数据（会话日志、任务快照）=====
+.reasonix/
