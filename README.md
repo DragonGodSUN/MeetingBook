@@ -1,177 +1,235 @@
-# MeetingBook — 会议音频、纪要及相关文件仓库
+# 📖 MeetingBook — 会议音频 · 转写 · 纪要 · 检索
 
-集中存放会议录音、转写文本、纪要与附件的仓库。
+一站式会议管理工具：**导入录音 → 自动转写 → AI 生成纪要 → 全文检索/问答**。
+提供 Web 可视化界面与终端命令两种操作方式，会议数据本地保存、隐私可控。
 
-## 目录结构
+---
+
+## 📑 目录
+
+- [功能总览](#-功能总览)
+- [快速开始（3 分钟上手）](#-快速开始3-分钟上手)
+- [启动方式](#-启动方式)
+- [使用流程](#-使用流程)
+- [终端命令参考](#-终端命令参考)
+- [目录结构与命名](#-目录结构与命名)
+- [会议数据目录配置（可放项目外）](#-会议数据目录配置可放项目外)
+- [API Key 配置](#-api-key-配置)
+- [删除与恢复](#-删除与恢复)
+- [隐私与安全](#-隐私与安全)
+- [环境依赖（首次安装）](#-环境依赖首次安装)
+- [纪要模板](#-纪要模板)
+- [常见问题 FAQ](#-常见问题-faq)
+
+---
+
+## ✨ 功能总览
+
+| 功能 | Web 界面 | 终端命令 | 说明 |
+|------|:---:|:---:|------|
+| 导入音频 | ✅ 文件上传 | `import` | 自动归档到 `日期-序号` 会议目录 |
+| 语音转写 | ✅ 实时进度条 | `transcribe` | faster-whisper，GPU 加速，中文友好 |
+| AI 生成纪要 | ✅ 一键生成 | `summarize` | DeepSeek，含待办表格 |
+| 全文检索 | ✅ | `search` | 中文分词 + BM25 关键词检索 |
+| LLM 问答 | ✅ 带来源引用 | `ask` | 基于会议材料回答 |
+| 音频播放 | ✅ 浏览器直放 | — | — |
+| 会议属性编辑 | ✅ 名称/时间/参会人… | — | 存 `meeting.properties` |
+| API Key 管理 | ✅ | `config` | 存 `.env`，不入库 |
+| 删除会议 | ✅ 二次确认 | `remove` | 进回收站 `.trash`，可恢复 |
+
+---
+
+## 🚀 快速开始（3 分钟上手）
+
+```powershell
+# 1. 安装依赖（首次）
+pip install faster-whisper openai jieba flask
+#   （另需 FFmpeg；国内网络需配置镜像环境变量，见文末）
+
+# 2. 启动 Web 界面（自动打开浏览器）
+.\scripts\启动可视化界面.bat
+
+# 3. 在页面里：导入音频 → 转写 → 生成纪要 → 检索提问
+```
+
+终端用户：`.\scripts\启动会议助手.bat` 进入交互菜单。
+
+---
+
+## 🚀 启动方式
+
+| 入口 | 命令 / 双击 | 说明 |
+|------|------------|------|
+| **Web 界面**（推荐） | `scripts\启动可视化界面.bat` | 浏览器操作，默认 http://127.0.0.1:8765 |
+| **终端菜单** | `scripts\启动会议助手.bat` | 交互式数字菜单 |
+| 关闭 Web 服务 | `scripts\关闭可视化界面.bat` | 按端口/进程精确终止 |
+
+命令行直接启动：
+
+```powershell
+python tools/webui.py                    # Web（--no-browser 不弹浏览器，--port 改端口）
+python tools/meetingbook.py              # 终端菜单
+```
+
+> 启动脚本会自动检查依赖（缺包自动安装）、应用国内网络环境变量。
+
+---
+
+## 🔄 使用流程
+
+```
+导入音频 → 转写 → 生成纪要 → 检索提问
+  ①        ②        ③        ④
+```
+
+**① 导入**：把录音拖入 Web 页面（或 `import 录音.m4a`），自动创建会议目录 `meetings/<年>/<年月>/<日期-序号>/`。
+
+**② 转写**：点「转写音频」→ 顶部进度条显示**音频内真实百分比 + 实时识别文本**（像字幕一样逐句冒出）。完成后 `transcript/` 生成带时间戳的文本。
+
+**③ 纪要**：点「生成纪要」→ DeepSeek 依据转写 + 会议属性（参会人/时间/地点）生成结构化纪要，存 `notes/`，含待办表格。
+
+**④ 检索/问答**：在「检索提问」输入问题：
+- **LLM 问答**：先检索相关片段，再由 DeepSeek 基于材料回答（带来源引用）
+- **关键词检索**：仅返回命中片段
+
+---
+
+## 💻 终端命令参考
+
+```powershell
+python tools/meetingbook.py list                    # 列出所有会议
+python tools/meetingbook.py import 录音.m4a --meeting 产品评审   # 导入（名称存属性文件）
+python tools/meetingbook.py transcribe --all        # 转写所有未转写音频（--meeting 指定，--force 重转）
+python tools/meetingbook.py summarize --all         # 生成全部纪要（--no-save 只预览）
+python tools/meetingbook.py search "性能优化"        # 关键词检索
+python tools/meetingbook.py ask "上周决定了什么？"    # LLM 问答
+python tools/meetingbook.py remove 2026-08-06-001    # 删除会议（入回收站）
+python tools/meetingbook.py config                   # 查看 API Key 状态
+python tools/meetingbook.py config --set sk-xxx      # 保存 API Key
+python tools/meetingbook.py config --clear           # 清除 API Key
+```
+
+`--meeting` 支持按**日期、序号或显示名**模糊匹配；转写/摘要幂等（已处理过的自动跳过）。
+
+---
+
+## 📁 目录结构与命名
 
 ```
 MeetingBook/
-├── README.md
-├── .gitignore
-├── .env                     # API Key（本地，已被 git 忽略）
-├── tools/                   # 程序代码（meetingbook.py / transcribe.py / webui.py）
-├── scripts/                 # 启动/关闭脚本（双击运行）
-│   ├── 启动会议助手.bat
-│   ├── 启动可视化界面.bat
-│   ├── 关闭可视化界面.bat
-│   ├── start_meetingbook.ps1
-│   └── stop_webui.ps1
-└── meetings/                # 会议数据统一根目录
-    └── <年>/                # 如 2026
-        └── <年-月>/         # 如 2026-08
-            └── <YYYY-MM-DD>-<会议主题>/   # 一次会议一个文件夹（导入时自动创建）
-                ├── meeting.properties        # 会议通用属性（名称/日期/时间/地点/主持人/参会人，Web 可改）
-                ├── agenda.md                  # 议程模板（自动生成，可编辑）
-                ├── audio/                     # 录音文件（git 已忽略，仅本地）
-                ├── transcript/                # 语音转写文本
-                ├── notes/                     # 纪要 / 笔记（Markdown）
-                └── attachments/               # 附件（演示文稿、图片、文档等)
+├── tools/            # 程序代码（meetingbook.py 主程序 / transcribe.py 转写 / webui.py Web）
+├── scripts/          # 启动/关闭脚本（双击运行）
+├── .env              # API Key 等本地配置（git 已忽略）
+└── meetings/         # 会议数据（全部不入库，仅本地）
+    └── <年>/ <年-月>/
+        └── 2026-08-06-001/            # 日期-序号（当天从 001 递增）
+            ├── meeting.properties     # 会议通用属性（Web 可编辑）
+            ├── agenda.md              # 议程模板（自动生成）
+            ├── audio/                 # 录音（不入库）
+            ├── transcript/            # 转写文本（不入库）
+            ├── notes/                 # 纪要（不入库）
+            └── attachments/           # 附件（不入库）
 ```
 
-## 命名约定
+**会议通用属性**（`meeting.properties`，Web「编辑属性」或直接编辑）：
 
-- **会议文件夹**：`YYYY-MM-DD-序号`（序号当天从 001 递增），如 `2026-08-06-001`
-- **会议名称**：显示名存 `meeting.properties`（`name=产品评审`），文件夹名不含名称，可在 Web 界面随时改名
-- **会议通用属性**（`meeting.properties`，Web「编辑属性」可改）：`name` 名称、`date` 日期、`time` 时间、`location` 地点、`organizer` 主持人、`participants` 参会人（逗号分隔）、`created` 创建时间；新会议自动初始化，属性会同步到议程与纪要生成
-- **转写文件**：`transcript/<音频名>-转写.txt`
-- **纪要文件**：`notes/<音频名>-纪要.md`（由转写自动生成时自动去掉冗余的“-转写”）
-- **音频**：放入 `audio/`，如 `产品评审会录音.m4a`
+| 键 | 说明 | 示例 |
+|----|------|------|
+| `name` | 显示名称 | 产品评审 |
+| `date` | 日期 | 2026-08-06 |
+| `time` | 开始时间 | 14:00 |
+| `location` | 地点 | 3F 会议室 |
+| `organizer` | 主持人 | 张三 |
+| `participants` | 参会人（逗号分隔） | 张三, 李四 |
+| `created` | 创建时间 | 2026-08-06 19:10 |
 
-> 每个会议目录固定四子目录（audio / transcript / notes / attachments）+ agenda.md + meeting.properties，
-> 导入音频或转写/摘要时会自动补齐，无需手动创建。
+> 命名规范：文件夹用**序号**（改名不影响路径）；显示名存属性文件，Web 随时改。
+> 新会议自动初始化全部属性与四目录，无需手动创建。
 
-## 使用说明
+---
 
-1. **新建会议**：复制 `2026-08-06-示例会议/` 的结构，或按命名约定手动创建。
-2. **录音**：录音文件只放 `audio/` 本地保存，**不会进入 git**（见 `.gitignore`）。
-3. **纪要**：用 Markdown 写纪要，放入 `notes/`；转写文本放 `transcript/`。
-4. **提交**：`git add . && git commit -m "..."` —— 只提交文本类内容。
+## 🗂 会议数据目录配置（可放项目外）
 
-## 音频转写（faster-whisper）
+默认数据在项目内 `meetings/`；放别处（独立盘、中文路径均可）在 `.env` 配置：
 
-用本地 Whisper 模型自动把 `audio/` 里的录音转成带时间戳的文本，输出到 `transcript/`。
+```properties
+MEETINGS_ROOT=D:\会议数据
+```
+
+- 支持中文/跨盘路径，启动自动识别，Web 启动时打印当前数据目录
+- 更换目录后需手动迁移原数据
+
+---
+
+## 🔑 API Key 配置
+
+`summarize` / `ask` 需要 DeepSeek API：
+
+1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 Key
+2. 保存方式任选：
+   - Web：右上角「API Key 配置」
+   - 终端：`python tools/meetingbook.py config --set sk-xxx`
+   - 菜单：交互菜单选 **[6] 配置 API Key**
+3. Key 存项目根 `.env`（git 已忽略），程序自动加载；也可用系统环境变量 `DEEPSEEK_API_KEY`
+
+---
+
+## 🗑 删除与恢复
+
+删除**不会永久删除**，先进回收站：
 
 ```powershell
-# 基本用法（默认 medium 模型，自动检测语言）
-python tools/transcribe.py "meetings/2026/2026-08/2026-08-06-产品评审/audio/录音.m4a"
-
-# 指定中文与更准的模型
-python tools/transcribe.py audio.m4a --model large-v3 --language zh
-
-# 指定输出目录
-python tools/transcribe.py audio.m4a --output-dir "meetings/2026/2026-08/2026-08-06-产品评审/transcript"
+python tools/meetingbook.py remove 2026-08-06-001   # 打印清单 → 输入会议名确认 → 入回收站
 ```
 
-**环境依赖**（首次已配置好）：
-- Python 3.12 + `pip install faster-whisper`
-- FFmpeg（解码 m4a/mp3/wav 等）
-- 模型自动从 HuggingFace 下载，缓存于 `%USERPROFILE%\.cache\huggingface`
-- 已持久化的环境变量（国内网络必需）：
-  - `HF_ENDPOINT=https://hf-mirror.com` — 模型镜像源
-  - `HF_HUB_DISABLE_XET=1` — 禁用镜像不支持的 xet 下载协议
-  - `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` — 指向 certifi 根证书，修复 Python SSL 校验
+- Web：详情页「删除会议」（两次确认）
+- **恢复**：把目录从 `meetings/.trash/` 移回 `meetings/<年>/<年月>/`
+- 彻底清理：手动删除 `meetings/.trash/`
 
-**模型大小参考**（RTX 2060 6GB）：
-| 模型 | 显存占用 | 速度 | 中文准确率 |
-| ---- | ------- | ---- | --------- |
+---
+
+## 🔒 隐私与安全
+
+- **会议数据一律不入库**：`.gitignore` 屏蔽 `meetings/**`（音频/转写/纪要/属性），仓库只有代码与空目录结构，克隆/推送不会携带会议内容
+- **路径防护**：所有读写经数据目录范围校验（`safe_join`），上传文件名清洗，路径穿越（`../`）一律拒绝
+- **API Key 本地保存**：`.env` 不入库
+
+---
+
+## 🛠 环境依赖（首次安装）
+
+**软件**：Python 3.10+ · FFmpeg · （可选）NVIDIA GPU
+
+```powershell
+pip install faster-whisper openai jieba flask
+```
+
+**国内网络必需的环境变量**（本机已持久化）：
+
+| 变量 | 值 | 作用 |
+|------|-----|------|
+| `HF_ENDPOINT` | `https://hf-mirror.com` | Whisper 模型镜像源 |
+| `HF_HUB_DISABLE_XET` | `1` | 镜像不支持 xet 协议时必需 |
+| `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` | certifi 的 `cacert.pem` | 修复 Python SSL 校验 |
+
+**Whisper 模型参考**（6GB 显存）：
+
+| 模型 | 显存 | 速度 | 中文准确率 |
+|------|------|------|-----------|
 | small | ~1GB | 极快 | 一般 |
 | medium | ~2.5GB | 快 | 好（默认） |
 | large-v3 | ~5GB | 中等 | 最好 |
 
-> 转写后建议对照 `transcript/` 的文本整理 `notes/` 纪要，可用下方模板。
+---
 
-## MeetingBook 可视化界面（Web）
-
-本地 Web 界面：可视化操作全部功能（导入、转写进度、纪要、音频播放、检索问答、API Key 配置）。
-
-```powershell
-# 双击 scripts/ 下的「启动可视化界面.bat」自动打开浏览器，或命令行：
-python tools/webui.py                # 启动并自动打开浏览器（默认 http://127.0.0.1:8765）
-python tools/webui.py --no-browser --port 8080
-
-# 关闭界面：双击 scripts/ 下的「关闭可视化界面.bat」（按端口 8765 / webui.py 进程自动定位并终止）
-```
-
-界面功能：
-- 左侧会议列表，点击查看详情；音频可直接在浏览器播放
-- 「转写音频」「生成纪要」带实时进度条（后台任务，可继续操作其他页面）
-- 「检索提问」支持关键词检索与 LLM 问答（基于会议材料，带来源引用）
-- 导入音频：上传文件 + 会议主题，自动归档到 `日期-主题/audio/`
-- 右上角「API Key 配置」：查看/保存/清除 DeepSeek Key（存 `.env`，不入库）
-
-## 会议助手（终端程序）
-
-一站式管理会议：**导入音频 → 转写 → 摘要 → 检索提问**。
-
-```powershell
-# 一键启动（推荐）：双击 scripts/ 下的 bat，或命令行运行
-.\scripts\启动会议助手.bat          # 交互式主菜单
-.\scripts\启动会议助手.bat search "性能优化"   # 可直接带子命令参数
-.\scripts\启动可视化界面.bat        # Web 可视化界面（自动开浏览器）
-.\scripts\关闭可视化界面.bat        # 停止 Web 界面服务
-
-# 或直接调用
-python tools/meetingbook.py   # 交互式主菜单
-python tools/meetingbook.py list                                  # 列出所有会议
-python tools/meetingbook.py import 录音.m4a --meeting 产品评审    # 导入音频（自动归档到 日期-主题/audio/）
-python tools/meetingbook.py transcribe --all                      # 转写所有音频（默认只转写未转写的）
-python tools/meetingbook.py summarize --all                       # 为转写生成纪要（存 notes/）
-python tools/meetingbook.py search "性能优化"                     # 关键词检索转写/纪要
-python tools/meetingbook.py ask "上周决定了什么？"                # 检索 + LLM 问答
-python tools/meetingbook.py config                                # 查看 API Key 状态
-python tools/meetingbook.py config --set sk-xxx                   # 保存 API Key（写入 .env，不入库）
-python tools/meetingbook.py config --clear                        # 清除 .env 中的 API Key
-```
-
-> 启动脚本 `scripts/启动会议助手.bat` / `scripts/start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
-
-## 会议数据目录配置（可放项目外）
-
-默认会议数据存放在项目内 `meetings/`；如需放到其他位置（如独立数据盘、含中文路径），在 `.env` 或环境变量中配置：
-
-```properties
-# .env（或系统环境变量）
-MEETINGS_ROOT=D:\会议数据
-```
-
-- 支持**任意路径**（中文、跨盘均可），程序启动时自动识别
-- 换目录后需把原有会议数据移过去（或留空则新建）
-- Web 界面启动时会打印当前数据目录
-
-**路径安全**：所有会议读写（上传/转写/纪要/播放）均经过数据目录范围校验（`safe_join`），
-上传文件名自动清洗，路径穿越（`../`）一律拒绝，无法越权写入数据目录之外。
-
-## 删除会议（安全删除）
-
-删除会议**不会永久删除**，而是移入回收站 `meetings/.trash/`（可恢复）：
-
-```powershell
-python tools/meetingbook.py remove 2026-08-06-001   # 打印内容清单 → 输入会议名确认 → 入回收站
-```
-
-- Web 界面：详情页「删除会议」按钮（两次确认后执行）
-- 恢复方法：把目录从 `.trash/` 移回 `meetings/<年>/<年月>/` 即可
-- 彻底清理回收站：手动删除 `meetings/.trash/` 目录
-
-**API Key 管理**（`summarize` / `ask` 需要，用 DeepSeek API）：
-1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 API Key
-2. 保存 key 二选一：
-   - 交互菜单：选择 **[6] 配置 API Key** 粘贴保存
-   - 命令行：`python tools/meetingbook.py config --set sk-xxx`
-3. Key 保存在项目根 `.env`（已被 git 忽略，不入库），程序自动加载；也可改用系统环境变量 `DEEPSEEK_API_KEY`
-4. `config` 无参数查看当前状态（key 掩码显示）；`config --clear` 清除
-
-
-
-## 建议的纪要模板
+## 📝 纪要模板
 
 ```markdown
-# <会议主题> 纪要
+# <会议名称> 纪要
 
 - **日期**：YYYY-MM-DD
 - **时间**：HH:MM - HH:MM
 - **参会人**：A、B、C
-- **记录人**：A
 
 ## 议程
 1. ...
@@ -186,8 +244,23 @@ python tools/meetingbook.py remove 2026-08-06-001   # 打印内容清单 → 输
 | 事项 | 负责人 | 截止日期 |
 | ---- | ------ | -------- |
 | ...  | ...    | ...      |
-
-## 下次会议
-- 时间：
-- 议题：
 ```
+
+---
+
+## ❓ 常见问题 FAQ
+
+**Q：换电脑/克隆仓库后会议数据会同步吗？**
+不会。会议数据（音频/转写/纪要）只存在本地 `meetings/`，仓库只含代码。需要迁移时直接复制 `meetings/` 目录（或配置 `MEETINGS_ROOT` 指向共享盘）。
+
+**Q：转写太慢/不准？**
+换大模型：Web 暂固定 medium，CLI 用 `transcribe --model large-v3 --language zh`。显存不足用 `small`。
+
+**Q：`summarize` / `ask` 报网络错误？**
+检查 `DEEPSEEK_API_KEY` 是否配置、能否访问 `api.deepseek.com`（部分网络需代理，可设 `HTTPS_PROXY` 或换 `DEEPSEEK_BASE_URL` 到兼容服务）。
+
+**Q：误删了会议？**
+删除走回收站，从 `meetings/.trash/` 移回即可；若手动删了文件，尽快用数据恢复软件（如 Recuva）扫描。
+
+**Q：会议改名会影响路径/引用吗？**
+不会。文件夹是序号，显示名存属性文件，改名只改 `meeting.properties`。
