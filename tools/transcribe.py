@@ -63,9 +63,37 @@ def main() -> int:
         print(f"错误: 找不到音频文件 {audio}", file=sys.stderr)
         return 1
 
+    try:
+        out_path = transcribe_audio(
+            audio,
+            model_size=args.model,
+            language=args.language,
+            output_dir=args.output_dir,
+            compute_type=args.compute_type,
+            vad=args.vad,
+        )
+    except Exception as e:
+        print(f"转写失败: {e}", file=sys.stderr)
+        return 1
+    print(f"输出文件: {out_path}")
+    return 0
+
+
+def transcribe_audio(audio: str, model_size: str = "medium", language: str | None = None,
+                     output_dir: str | None = None, compute_type: str = "auto",
+                     vad: bool = True) -> str:
+    """转写单个音频文件，返回输出 txt 路径。
+
+    输出默认写到 <音频所在目录>/../transcript/<音频名>-转写.txt。
+    模型按 (大小, 设备, 精度) 缓存，连续转写多个文件只加载一次。
+    """
+    audio = os.path.abspath(audio)
+    if not os.path.isfile(audio):
+        raise FileNotFoundError(f"找不到音频文件 {audio}")
+
     # 输出路径：默认 <音频所在会议目录>/transcript/<音频名>-转写.txt
-    if args.output_dir:
-        out_dir = os.path.abspath(args.output_dir)
+    if output_dir:
+        out_dir = os.path.abspath(output_dir)
     else:
         audio_dir = os.path.dirname(audio)
         out_dir = os.path.join(audio_dir, "..", "transcript")
@@ -75,21 +103,21 @@ def main() -> int:
     base = os.path.splitext(os.path.basename(audio))[0]
     out_path = os.path.join(out_dir, f"{base}-转写.txt")
 
-    # 加载模型
-    print(f"[1/3] 加载模型 {args.model} ...")
+    # 加载模型（缓存）
+    print(f"[1/3] 加载模型 {model_size} ...")
     t0 = time.time()
-    device, compute_type = pick_device(args.compute_type)
+    device, compute_type = pick_device(compute_type)
     print(f"      设备: {device}, 精度: {compute_type}")
-    model = WhisperModel(args.model, device=device, compute_type=compute_type)
-    print(f"      模型加载完成 ({time.time()-t0:.1f}s)")
+    model = _get_model(model_size, device, compute_type)
+    print(f"      模型就绪 ({time.time()-t0:.1f}s)")
 
     # 转写
     print(f"[2/3] 转写 {os.path.basename(audio)} ...")
     t0 = time.time()
     segments, info = model.transcribe(
         audio,
-        language=args.language,
-        vad_filter=args.vad,
+        language=language,
+        vad_filter=vad,
         beam_size=5,
     )
     detected_lang = getattr(info, "language", "?")
@@ -101,7 +129,7 @@ def main() -> int:
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(f"# {base}\n")
         f.write(f"- 语言: {detected_lang} | 音频时长: {fmt_ts(info.duration)}\n")
-        f.write(f"- 转写时间: {time.strftime('%Y-%m-%d %H:%M')} | 模型: {args.model}\n\n")
+        f.write(f"- 转写时间: {time.strftime('%Y-%m-%d %H:%M')} | 模型: {model_size}\n\n")
         for seg in segments:
             f.write(f"[{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}] {seg.text.strip()}\n")
             n_seg += 1
@@ -109,12 +137,21 @@ def main() -> int:
                 print(f"      已转写 {n_seg} 段 ...")
 
     print(f"完成: {n_seg} 段，耗时 {time.time()-t0:.1f}s")
-    print(f"输出文件: {out_path}")
-    return 0
+    return out_path
 
 
 # 延迟导入，便于 --help 快速响应
 from faster_whisper import WhisperModel  # noqa: E402
+
+# 模型缓存：同一 (大小, 设备, 精度) 只加载一次
+_MODEL_CACHE: dict = {}
+
+
+def _get_model(model_size: str, device: str, compute_type: str) -> "WhisperModel":
+    key = (model_size, device, compute_type)
+    if key not in _MODEL_CACHE:
+        _MODEL_CACHE[key] = WhisperModel(model_size, device=device, compute_type=compute_type)
+    return _MODEL_CACHE[key]
 
 if __name__ == "__main__":
     sys.exit(main())

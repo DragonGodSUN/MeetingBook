@@ -31,5 +31,8 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# ===== 本地密钥配置（API Key 不入库）=====
+.env
+
 # ===== Reasonix 工具运行元数据（会话日志、任务快照）=====
 .reasonix/
