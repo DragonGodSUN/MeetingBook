@@ -394,11 +394,10 @@ AGENDA_TEMPLATE = """# {topic} 议程
 - **地点**：{location}
 
 ## 议题
-1. 
-2. 
+{topics}
 
 ## 备注
-
+{notes}
 """
 
 
@@ -434,7 +433,26 @@ def ensure_meeting_structure(folder: str) -> None:
                 date=props.get("date") or md["date"] or date.today().strftime("%Y-%m-%d"),
                 time=props.get("time", ""),
                 participants=props.get("participants", ""),
-                location=props.get("location", "")))
+                location=props.get("location", ""),
+                topics="",
+                notes=""))
+
+
+def write_agenda(folder: str, topics: str = "", notes: str = "") -> str:
+    """用当前属性 + 用户议题/备注重写 agenda.md，返回路径。"""
+    md = parse_meeting(folder)
+    props = read_props(folder)
+    agenda = os.path.join(folder, "agenda.md")
+    with open(agenda, "w", encoding="utf-8") as f:
+        f.write(AGENDA_TEMPLATE.format(
+            topic=props.get("name") or md["topic"] or "会议",
+            date=props.get("date") or md["date"] or date.today().strftime("%Y-%m-%d"),
+            time=props.get("time", ""),
+            participants=props.get("participants", ""),
+            location=props.get("location", ""),
+            topics=topics.strip(),
+            notes=notes.strip()))
+    return agenda
 
 
 def cmd_import(args) -> int:

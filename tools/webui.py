@@ -244,6 +244,29 @@ def api_meeting(name):
     return jsonify(meeting_detail(m))
 
 
+@app.post("/api/meeting/<name>/agenda")
+def api_meeting_agenda(name):
+    """保存议程：更新头部属性（props）+ 议题/备注（重写 agenda.md）。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    data = request.get_json(force=True)
+    # 头部字段 → meeting.properties
+    props = {}
+    for k in ("time", "location", "organizer", "participants"):
+        if k in data:
+            props[k] = str(data.get(k) or "").strip()
+    if "title" in data:
+        props["name"] = str(data.get("title") or "").strip()
+    if props:
+        mb.write_props(m, props)
+    # 议题/备注 → agenda.md
+    topics = str(data.get("topics") or "").strip()
+    notes = str(data.get("notes") or "").strip()
+    mb.write_agenda(m, topics=topics, notes=notes)
+    return jsonify({"ok": True})
+
+
 @app.post("/api/meeting/<name>/rename")
 def api_meeting_rename(name):
     """修改会议显示名称（写入 meeting.properties，不改文件夹名）。"""

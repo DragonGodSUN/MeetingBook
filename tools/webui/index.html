@@ -96,6 +96,16 @@
   .agenda-card { background: #fbfcff; border-left: 3px solid var(--primary); }
   .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
   .meta-item { font-size: 12px; color: var(--muted); background: #f0f3fb; padding: 3px 10px; border-radius: 14px; }
+
+  /* 议程卡片 */
+  .agenda-head { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; font-size: 13px; }
+  .agenda-item b { color: var(--muted); font-weight: 500; margin-right: 4px; }
+  .agenda-item i.unset { color: #c3c9d6; font-style: normal; font-size: 12px; }
+  .agenda-sec { margin-top: 8px; }
+  .agenda-sec-title { font-size: 13px; font-weight: 600; color: #1f2937; margin-bottom: 4px; border-left: 3px solid var(--primary); padding-left: 8px; }
+  .md-body .unset { color: #c3c9d6; font-size: 12px; }
+  .modal textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; outline: none; }
+  .modal textarea:focus { border-color: var(--primary); }
   .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
 
   /* ---- Markdown 内容样式 ---- */
@@ -196,8 +206,15 @@
       <h2 id="detailTitle"></h2>
       <div id="detailMeta" class="detail-meta"></div>
       <div id="detailAgenda" class="item-card agenda-card" style="display:none">
-        <div class="name">📋 议程</div>
-        <div class="md-body" id="detailAgendaBody"></div>
+        <div class="name">
+          <span id="agendaTitle">📋 议程</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <button class="btn" onclick="openAgendaModal()" style="padding:3px 10px;font-size:12px">✏️ 编辑议程</button>
+          </span>
+        </div>
+        <div class="agenda-head" id="agendaHead"></div>
+        <div class="agenda-sec"><div class="agenda-sec-title">议题</div><div id="agendaTopics" class="md-body"></div></div>
+        <div class="agenda-sec"><div class="agenda-sec-title">备注</div><div id="agendaNotes" class="md-body"></div></div>
       </div>
       <div class="actions">
         <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
@@ -242,6 +259,25 @@
     <div class="row-btns">
       <button class="btn" onclick="closeModal('importModal')">取消</button>
       <button class="btn primary" onclick="doImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 议程编辑弹窗 -->
+<div class="modal-mask" id="agendaModal">
+  <div class="modal" style="width:520px">
+    <h3>编辑议程</h3>
+    <div class="row"><label>会议名称</label><input type="text" id="a_title"></div>
+    <div class="row"><label>时间（如 14:00）</label><input type="text" id="a_time"></div>
+    <div class="row"><label>地点</label><input type="text" id="a_location"></div>
+    <div class="row"><label>主持人</label><input type="text" id="a_organizer"></div>
+    <div class="row"><label>参会人（逗号分隔）</label><input type="text" id="a_participants"></div>
+    <div class="row"><label>议题（每行一条）</label><textarea id="a_topics" rows="5" placeholder="1. 议题一&#10;2. 议题二"></textarea></div>
+    <div class="row"><label>备注</label><textarea id="a_notes" rows="3"></textarea></div>
+    <div class="err" id="agendaErr"></div>
+    <div class="row-btns">
+      <button class="btn" onclick="closeModal('agendaModal')">取消</button>
+      <button class="btn primary" onclick="saveAgenda()">保存</button>
     </div>
   </div>
 </div>
@@ -348,13 +384,9 @@ async function refreshDetail() {
     ? metas.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join("")
     : "";
 
-  // 议程（agenda.md）
-  if (d.agenda && d.agenda.trim()) {
-    $("detailAgenda").style.display = "block";
-    $("detailAgendaBody").innerHTML = renderMd(d.agenda);
-  } else {
-    $("detailAgenda").style.display = "none";
-  }
+  // 议程卡片（智能填充：头部用属性，议题/备注来自 agenda.md）
+  $("detailAgenda").style.display = "block";
+  renderAgenda(d);
 
   // 音频/视频卡片：含转写状态徽章 + 内联进度条 + 实时识别文本
   const tDone = new Set(d.transcripts.map(t => t.name.replace(/-转写\.txt$/, "")));
@@ -399,6 +431,69 @@ async function refreshDetail() {
 function switchTab(tab) {
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
+}
+
+/* ---------- 议程卡片（智能填充 + 编辑） ---------- */
+function parseAgenda(txt) {
+  // 从 agenda.md 提取 议题/备注 部分（兼容新模板与旧模板）
+  const t = txt || "";
+  const m1 = t.match(/##\s*议题\s*\n([\s\S]*?)(?=\n##|\s*$)/);
+  const m2 = t.match(/##\s*备注\s*\n([\s\S]*)$/);
+  return {
+    topics: (m1 ? m1[1] : "").trim(),
+    notes: (m2 ? m2[1] : "").trim()
+  };
+}
+function renderAgenda(d) {
+  const p = d.props || {};
+  const title = (p.name || (d.title || "")).trim();
+  $("agendaTitle").textContent = "📋 " + (title || "会议") + " 议程";
+
+  // 头部：智能填充（属性有值显示，无值灰显“未设置”）
+  const head = [];
+  const row = (label, v) => `<span class="agenda-item"><b>${label}</b>${v ? escapeHtml(v) : '<i class="unset">未设置</i>'}</span>`;
+  head.push(row("日期", p.date || d.date));
+  head.push(row("时间", p.time));
+  head.push(row("参会人", p.participants));
+  head.push(row("地点", p.location));
+  if (p.organizer) head.push(row("主持人", p.organizer));
+  $("agendaHead").innerHTML = head.join("");
+
+  // 议题/备注
+  const ag = parseAgenda(d.agenda);
+  $("agendaTopics").innerHTML = ag.topics ? renderMd(ag.topics) : '<span class="unset">（未设置议题，点「编辑议程」添加）</span>';
+  $("agendaNotes").innerHTML = ag.notes ? renderMd(ag.notes) : '<span class="unset">（无备注）</span>';
+}
+async function openAgendaModal() {
+  if (!currentMeeting) return;
+  $("agendaErr").textContent = "";
+  try {
+    const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
+    const p = d.props || {};
+    $("a_title").value = p.name || "";
+    $("a_time").value = p.time || "";
+    $("a_location").value = p.location || "";
+    $("a_organizer").value = p.organizer || "";
+    $("a_participants").value = p.participants || "";
+    const ag = parseAgenda(d.agenda);
+    $("a_topics").value = ag.topics;
+    $("a_notes").value = ag.notes;
+    openModal("agendaModal");
+  } catch (e) { $("agendaErr").textContent = "读取失败：" + e.message; }
+}
+async function saveAgenda() {
+  try {
+    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/agenda",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: $("a_title").value, time: $("a_time").value, location: $("a_location").value,
+          organizer: $("a_organizer").value, participants: $("a_participants").value,
+          topics: $("a_topics").value, notes: $("a_notes").value
+        }) });
+    closeModal("agendaModal");
+    await loadMeetings();
+    await refreshDetail();
+  } catch (e) { $("agendaErr").textContent = e.message; }
 }
 
 /* ---------- 会议属性编辑（写 meeting.properties，不改文件夹名） ---------- */
