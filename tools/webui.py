@@ -75,7 +75,7 @@ def task_transcribe(cb, meeting, model, language, force):
     audio_dir, t_dir = os.path.join(m, "audio"), os.path.join(m, "transcript")
     os.makedirs(t_dir, exist_ok=True)
     files = sorted(f for f in os.listdir(audio_dir)
-                   if os.path.splitext(f)[1].lower() in mb.AUDIO_EXTS)
+                   if os.path.splitext(f)[1].lower() in mb.MEDIA_EXTS)
     todo = [f for f in files
             if force or not os.path.exists(os.path.join(t_dir, f"{os.path.splitext(f)[0]}-转写.txt"))]
     if not todo:
@@ -184,6 +184,7 @@ def meeting_detail(m: str) -> dict:
                 if sub == "audio":
                     item["url"] = f"/files/{rel}"
                     item["size_mb"] = round(os.path.getsize(os.path.join(d, f)) / 1048576, 1)
+                    item["kind"] = "video" if os.path.splitext(f)[1].lower() in mb.VIDEO_EXTS else "audio"
                 elif sub == "transcript":
                     item["content"] = _read_text(os.path.join(d, f))
                 else:

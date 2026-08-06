@@ -372,7 +372,11 @@ def meeting_choose_interactive(prompt: str = "选择会议") -> str | None:
 
 # ---------- 导入 ----------
 
-AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus", ".amr", ".3gp", ".webm"}
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus", ".amr", ".3gp"}
+# 视频格式：转写时自动提取音轨（faster-whisper/PyAV 直接解码）
+VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".ts", ".m2ts", ".wmv"}
+# 媒体白名单（音频 + 视频），用于导入/转写/统计
+MEDIA_EXTS = AUDIO_EXTS | VIDEO_EXTS
 
 # 会议目录统一结构：audio(录音) / transcript(转写) / notes(纪要) / attachments(附件)
 MEETING_SUBDIRS = ("audio", "transcript", "notes", "attachments")
@@ -439,8 +443,8 @@ def cmd_import(args) -> int:
         err(f"找不到文件: {src}")
         return 1
     ext = os.path.splitext(src)[1].lower()
-    if ext not in AUDIO_EXTS:
-        warn(f"文件后缀 {ext or '(无)'} 不在音频列表 {sorted(AUDIO_EXTS)} 内，仍将尝试导入。")
+    if ext not in MEDIA_EXTS:
+        warn(f"文件后缀 {ext or '(无)'} 不在媒体列表 {sorted(MEDIA_EXTS)} 内，仍将尝试导入。")
 
     # 确定日期与主题
     d = args.date or date.today().strftime("%Y-%m-%d")
@@ -508,7 +512,7 @@ def cmd_transcribe(args) -> int:
         transcript_dir = os.path.join(m, "transcript")
         os.makedirs(transcript_dir, exist_ok=True)
         for f in sorted(os.listdir(audio_dir)):
-            if os.path.splitext(f)[1].lower() not in AUDIO_EXTS:
+            if os.path.splitext(f)[1].lower() not in MEDIA_EXTS:
                 continue
             base = os.path.splitext(f)[0]
             out = os.path.join(transcript_dir, f"{base}-转写.txt")
@@ -534,7 +538,7 @@ def _has_untranscribed_audio(meeting: str) -> bool:
     if not os.path.isdir(audio_dir):
         return False
     for f in os.listdir(audio_dir):
-        if os.path.splitext(f)[1].lower() not in AUDIO_EXTS:
+        if os.path.splitext(f)[1].lower() not in MEDIA_EXTS:
             continue
         base = os.path.splitext(f)[0]
         if not os.path.exists(os.path.join(t_dir, f"{base}-转写.txt")):
@@ -789,7 +793,7 @@ def cmd_list(args) -> int:
     for m in meetings:
         md = parse_meeting(m)
         audio_n = len([f for f in os.listdir(os.path.join(m, "audio"))
-                       if os.path.splitext(f)[1].lower() in AUDIO_EXTS]) if os.path.isdir(os.path.join(m, "audio")) else 0
+                       if os.path.splitext(f)[1].lower() in MEDIA_EXTS]) if os.path.isdir(os.path.join(m, "audio")) else 0
         t_dir, n_dir = os.path.join(m, "transcript"), os.path.join(m, "notes")
         t_n = len([f for f in os.listdir(t_dir) if f != ".gitkeep"]) if os.path.isdir(t_dir) else 0
         note_n = len([f for f in os.listdir(n_dir) if f != ".gitkeep"]) if os.path.isdir(n_dir) else 0

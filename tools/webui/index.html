@@ -222,7 +222,7 @@
 <div class="modal-mask" id="importModal">
   <div class="modal">
     <h3>导入音频</h3>
-    <div class="row"><label>音频文件</label><input type="file" id="importFile" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.amr,.3gp,.webm"></div>
+    <div class="row"><label>音频/视频文件</label><input type="file" id="importFile" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.amr,.3gp,.mp4,.mkv,.webm,.mov,.avi,.flv,.ts,.m2ts,.wmv"></div>
     <div class="row"><label>会议主题（留空用文件名）</label><input type="text" id="importTopic" placeholder="如：产品评审"></div>
     <div class="row"><label>会议日期（留空今天）</label><input type="date" id="importDate"></div>
     <div class="err" id="importErr"></div>
@@ -343,8 +343,12 @@ async function refreshDetail() {
   }
 
   $("tab-audio").innerHTML = d.audio.length ? d.audio.map(a =>
-    `<div class="item-card"><div class="name"><span>${escapeHtml(a.name)}</span><span style="color:var(--muted);font-weight:400">${a.size_mb} MB</span></div><audio controls preload="metadata" src="${a.url}"></audio></div>`
-  ).join("") : '<div class="empty-tip">无音频</div>';
+    `<div class="item-card"><div class="name"><span>${escapeHtml(a.name)}</span><span style="color:var(--muted);font-weight:400">${a.size_mb} MB${a.kind === "video" ? " · 视频" : ""}</span></div>` +
+    (a.kind === "video"
+      ? `<video controls preload="metadata" src="${a.url}" style="width:100%;max-height:260px;border-radius:8px;background:#000"></video><div style="font-size:12px;color:var(--muted);margin-top:4px">视频文件：浏览器可直接预览（mkv 等部分格式可能不支持，转写不受影响）</div>`
+      : `<audio controls preload="metadata" src="${a.url}"></audio>`) +
+    `</div>`
+  ).join("") : '<div class="empty-tip">无音频/视频</div>';
 
   $("tab-transcripts").innerHTML = d.transcripts.length ? d.transcripts.map(t =>
     `<div class="item-card"><div class="name">${escapeHtml(t.name)}</div><pre>${escapeHtml(t.content)}</pre></div>`
