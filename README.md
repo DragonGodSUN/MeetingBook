@@ -72,6 +72,8 @@ python tools/transcribe.py audio.m4a --output-dir "2026/2026-08-06-产品评审/
 # 双击根目录的「启动可视化界面.bat」自动打开浏览器，或命令行：
 python tools/webui.py                # 启动并自动打开浏览器（默认 http://127.0.0.1:8765）
 python tools/webui.py --no-browser --port 8080
+
+# 关闭界面：双击「关闭可视化界面.bat」（按端口 8765 / webui.py 进程自动定位并终止）
 ```
 
 界面功能：
