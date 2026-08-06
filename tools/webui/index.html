@@ -70,6 +70,47 @@
   .item-card pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; font-family: inherit; color: #374151; max-height: 400px; overflow-y: auto; }
   .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
 
+  /* ---- Markdown 内容样式 ---- */
+  .md-body { font-size: 13.5px; line-height: 1.85; color: #374151; }
+  .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+    margin: 18px 0 8px; line-height: 1.4; color: #1f2937;
+  }
+  .md-body h1 { font-size: 19px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  .md-body h2 { font-size: 17px; padding-left: 10px; border-left: 4px solid var(--primary); }
+  .md-body h3 { font-size: 15px; }
+  .md-body h4 { font-size: 14px; color: var(--primary-dark); }
+  .md-body p { margin: 8px 0; }
+  .md-body ul, .md-body ol { margin: 8px 0; padding-left: 24px; }
+  .md-body li { margin: 3px 0; }
+  .md-body table {
+    border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px;
+  }
+  .md-body th, .md-body td {
+    border: 1px solid #d9e0ee; padding: 8px 12px; text-align: left; vertical-align: top;
+  }
+  .md-body th { background: #f0f4fd; color: #1f2937; font-weight: 600; white-space: nowrap; }
+  .md-body tbody tr:nth-child(even) td { background: #fafbfe; }
+  .md-body tbody tr:hover td { background: #f2f6ff; }
+  .md-body blockquote {
+    border-left: 3px solid var(--primary); background: #f5f8ff; color: #4a5568;
+    margin: 10px 0; padding: 8px 14px; border-radius: 0 8px 8px 0;
+  }
+  .md-body code {
+    background: #eef1f8; color: #c0392b; padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; font-family: Consolas, "Courier New", monospace;
+  }
+  .md-body pre {
+    background: #1e2430; color: #e6e9f0; padding: 12px 14px; border-radius: 8px;
+    overflow-x: auto; margin: 12px 0;
+  }
+  .md-body pre code { background: none; color: inherit; padding: 0; }
+  .md-body hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .md-body ul.todo-list { list-style: none; padding-left: 4px; }
+  .md-body .todo-box { display: inline-block; margin-right: 6px; color: var(--primary); }
+  .md-body .todo-done { color: var(--muted); text-decoration: line-through; }
+  .md-body .todo-open { color: inherit; }
+
+
   #qa h2 { font-size: 16px; margin-bottom: 12px; }
   .qa-input { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
   .qa-input input, .qa-input select {
@@ -405,18 +446,122 @@ function closeModal(id) { $(id).classList.remove("open"); }
 document.querySelectorAll(".modal-mask").forEach(m =>
   m.addEventListener("click", e => { if (e.target === m) m.classList.remove("open"); }));
 
-/* ---------- 极简 Markdown 渲染 ---------- */
+/* ---------- Markdown 渲染（增强版：表格/列表/引用/代码块/待办/标题/段落） ---------- */
 function renderMd(src) {
-  let s = escapeHtml(src || "");
-  s = s.replace(/^###\s+(.+)$/gm, "<h4>$1</h4>");
-  s = s.replace(/^##\s+(.+)$/gm, "<h3>$1</h3>");
-  s = s.replace(/^#\s+(.+)$/gm, "<h2>$1</h2>");
-  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  s = s.replace(/`(.+?)`/g, "<code>$1</code>");
-  s = s.replace(/^\s*[-*]\s+(.+)$/gm, "<li>$1</li>");
-  s = s.replace(/(<li>[\s\S]*?<\/li>)\s*(?!<li>)/g, "<ul>$1</ul>");
-  s = s.replace(/\n/g, "<br>");
-  return `<div style="font-size:13px;line-height:1.8;color:#374151">${s}</div>`;
+  const lines = String(src || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let i = 0;
+
+  // 行内元素：代码 -> 粗体 -> 斜体
+  function inline(s) {
+    return escapeHtml(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  }
+  // 表格行解析
+  function parseRow(r) {
+    return r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+  }
+
+  while (i < lines.length) {
+    const t = lines[i].trim();
+
+    if (!t) { i++; continue; }
+
+    // 代码块
+    if (t.startsWith("```")) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) { buf.push(lines[i]); i++; }
+      i++; // 跳过结尾 ```
+      html.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    // 表格（下一行是分隔行 |---|---|）
+    if (t.startsWith("|") && /^\|[\s:|-]+\|$/.test(lines[i + 1]?.trim() || "")) {
+      const head = parseRow(t);
+      const rows = [];
+      i += 2; // 跳过表头与分隔行
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        rows.push(parseRow(lines[i]));
+        i++;
+      }
+      html.push(`<table><thead><tr>${head.map(h => `<th>${inline(h)}</th>`).join("")}</tr></thead>` +
+                `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+      continue;
+    }
+
+    // 标题
+    const hm = t.match(/^(#{1,4})\s+(.+)$/);
+    if (hm) {
+      const lv = hm[1].length;
+      html.push(`<h${lv}>${inline(hm[2])}</h${lv}>`);
+      i++;
+      continue;
+    }
+
+    // 引用
+    if (t.startsWith(">")) {
+      const qs = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) {
+        qs.push(inline(lines[i].trim().replace(/^>\s?/, "")));
+        i++;
+      }
+      html.push(`<blockquote>${qs.join("<br>")}</blockquote>`);
+      continue;
+    }
+
+    // 水平线
+    if (/^(-{3,}|\*{3,})$/.test(t)) { html.push("<hr>"); i++; continue; }
+
+    // 待办事项 - [ ] / - [x]
+    const tm = t.match(/^[-*+]\s+\[([ xX])\]\s+(.+)$/);
+    if (tm) {
+      const items = [];
+      while (i < lines.length) {
+        const m = lines[i].trim().match(/^[-*+]\s+\[([ xX])\]\s+(.+)$/);
+        if (!m) break;
+        const done = m[1].toLowerCase() === "x";
+        items.push(`<li class="${done ? "todo-done" : "todo-open"}"><span class="todo-box">${done ? "☑" : "☐"}</span>${inline(m[2])}</li>`);
+        i++;
+      }
+      html.push(`<ul class="todo-list">${items.join("")}</ul>`);
+      continue;
+    }
+
+    // 无序列表（连续项）
+    if (/^[-*+]\s+/.test(t)) {
+      const items = [];
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
+        items.push(inline(lines[i].trim().replace(/^[-*+]\s+/, "")));
+        i++;
+      }
+      html.push(`<ul>${items.map(x => `<li>${x}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    // 有序列表（连续项）
+    if (/^\d+[.)]\s+/.test(t)) {
+      const items = [];
+      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
+        items.push(inline(lines[i].trim().replace(/^\d+[.)]\s+/, "")));
+        i++;
+      }
+      html.push(`<ol>${items.map(x => `<li>${x}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    // 段落（连续非空行，空行内用 <br>）
+    const paras = [];
+    while (i < lines.length && lines[i].trim()) {
+      paras.push(inline(lines[i]));
+      i++;
+    }
+    html.push(`<p>${paras.join("<br>")}</p>`);
+  }
+  return html.join("");
 }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
