@@ -727,6 +727,37 @@ def cmd_autofill(args) -> int:
     return 0
 
 
+# ---------- 议程自动填充（从转写文本生成议题/备注） ----------
+
+AGENDA_LLM_SYSTEM = (
+    "你是会议议程整理助手。根据提供的会议转写文本，生成会议议程。"
+    "输出一个 JSON 对象：topics（议题列表，每行一条，用“1. ”“2. ”编号，行间用换行符）、"
+    "notes（备注，字符串）。提取不到相关内容就留空字符串。不要输出 JSON 以外的任何内容。"
+)
+
+
+def autofill_agenda(folder: str) -> dict:
+    """用 LLM 从转写生成议程（议题/备注），返回 {topics, notes}（不直接写入）。"""
+    md = parse_meeting(folder)
+    t_dir = os.path.join(folder, "transcript")
+    texts = []
+    if os.path.isdir(t_dir):
+        for f in sorted(os.listdir(t_dir)):
+            if f.endswith("-转写.txt"):
+                with open(os.path.join(t_dir, f), "r", encoding="utf-8", errors="ignore") as fh:
+                    texts.append(fh.read())
+    if not texts:
+        raise RuntimeError("该会议没有转写文本——请先转写音频。")
+    user = (f"会议名称: {md['topic']}\n会议日期: {md['date']}\n\n转写文本：\n"
+            + "\n".join(texts))
+    resp = llm_chat(AGENDA_LLM_SYSTEM, user, temperature=0.2, max_tokens=1024)
+    parsed = _parse_llm_json(resp)
+    return {
+        "topics": str(parsed.get("topics", "")).strip(),
+        "notes": str(parsed.get("notes", "")).strip(),
+    }
+
+
 # ---------- 检索 ----------
 
 STOPWORDS = {

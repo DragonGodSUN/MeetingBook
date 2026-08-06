@@ -244,6 +244,15 @@ def api_meeting(name):
     return jsonify(meeting_detail(m))
 
 
+def task_agenda_autofill(cb, meeting):
+    """从转写文本生成议程（议题/备注），返回 {topics, notes}。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    cb("agenda_llm", {"meeting": mb.parse_meeting(m)["topic"]})
+    return mb.autofill_agenda(m)
+
+
 @app.post("/api/meeting/<name>/agenda")
 def api_meeting_agenda(name):
     """保存议程：更新头部属性（props）+ 议题/备注（重写 agenda.md）。"""
@@ -265,6 +274,16 @@ def api_meeting_agenda(name):
     notes = str(data.get("notes") or "").strip()
     mb.write_agenda(m, topics=topics, notes=notes)
     return jsonify({"ok": True})
+
+
+@app.post("/api/meeting/<name>/agenda/autofill")
+def api_meeting_agenda_autofill(name):
+    """AI 从转写生成议程（议题/备注），返回 task（生成后前端确认保存）。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    tid = start_task("agenda_autofill", task_agenda_autofill, name)
+    return jsonify({"task": tid})
 
 
 @app.post("/api/meeting/<name>/rename")

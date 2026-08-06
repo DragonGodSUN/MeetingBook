@@ -209,6 +209,7 @@
         <div class="name">
           <span id="agendaTitle">📋 议程</span>
           <span style="display:flex;align-items:center;gap:8px">
+            <button class="btn" onclick="fillAgendaFromTranscript()" style="padding:3px 10px;font-size:12px">✨ 从转写填充</button>
             <button class="btn" onclick="openAgendaModal()" style="padding:3px 10px;font-size:12px">✏️ 编辑议程</button>
           </span>
         </div>
@@ -433,6 +434,34 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
 }
 
+/* ---------- 议程填充（AI 从转写生成，填入弹窗供确认） ---------- */
+async function fillAgendaFromTranscript() {
+  if (!currentMeeting) return;
+  if (!confirm("根据转写文本用 AI 生成议程（议题/备注）？\n生成结果会填入编辑弹窗，确认后再保存。")) return;
+  try {
+    const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/agenda/autofill",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    alert("AI 正在生成议程，请稍候…");
+    await new Promise((resolve, reject) => {
+      const t = setInterval(async () => {
+        try {
+          const st = await api("/api/task/" + d.task);
+          if (st.status === "done") { clearInterval(t); resolve(st.result || {}); }
+          else if (st.status === "error") { clearInterval(t); reject(new Error(st.error || "生成失败")); }
+        } catch (e) { clearInterval(t); reject(e); }
+      }, 1000);
+    }).then(async r => {
+      // 填入编辑弹窗（不直接保存，用户确认）
+      await openAgendaModal();
+      if (r.topics) $("a_topics").value = r.topics;
+      if (r.notes) $("a_notes").value = r.notes;
+      $("agendaErr").textContent = "已按转写生成议题/备注，请确认后保存。";
+    });
+  } catch (e) {
+    alert("议程生成失败：" + e.message);
+  }
+}
+
 /* ---------- 议程卡片（智能填充 + 编辑） ---------- */
 function parseAgenda(txt) {
   // 从 agenda.md 提取 议题/备注 部分（兼容新模板与旧模板）
@@ -638,6 +667,7 @@ function stageText(s, info) {
     case "searching": return `检索到 ${i.hits || 0} 条相关片段`;
     case "llm": return "DeepSeek 生成回答中…";
     case "autofilling": return "从转写提取会议属性…";
+    case "agenda_llm": return "AI 生成议程（议题/备注）…";
     default: return s || "…";
   }
 }
