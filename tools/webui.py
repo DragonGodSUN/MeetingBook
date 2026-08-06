@@ -186,7 +186,8 @@ def meeting_detail(m: str) -> dict:
                     item["content"] = _read_text(os.path.join(d, f))
                 out.append(item)
     return {"name": md["name"], "date": md["date"], "seq": md["seq"],
-            "title": md["topic"], "agenda": agenda,
+            "title": md["topic"], "props": mb.read_props(m),
+            "agenda": agenda,
             "audio": audio, "transcripts": transcripts, "notes": notes}
 
 
@@ -230,6 +231,25 @@ def api_meeting_rename(name):
         return jsonify({"error": "名称不能为空"}), 400
     mb.write_meeting_name(m, new_name)
     return jsonify({"ok": True, "name": new_name})
+
+
+@app.post("/api/meeting/<name>/props")
+def api_meeting_props(name):
+    """批量更新会议通用属性（写入 meeting.properties）。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    data = request.get_json(force=True)
+    props = data.get("props") or {}
+    if not isinstance(props, dict):
+        return jsonify({"error": "props 须为对象"}), 400
+    # 只接受通用属性键（防写入任意键）
+    allowed = set(mb.MEETING_PROP_KEYS)
+    clean = {k: str(v).strip() for k, v in props.items() if k in allowed}
+    if "name" in clean and not clean["name"]:
+        return jsonify({"error": "名称不能为空"}), 400
+    mb.write_props(m, clean)
+    return jsonify({"ok": True, "props": mb.read_props(m)})
 
 
 def _sanitize_filename(name: str) -> str:

@@ -157,40 +157,59 @@ MEETING_PROPS_FILE = "meeting.properties"
 MEETINGS_ROOT = os.path.join(ROOT, "meetings")
 
 
-def read_meeting_name(folder: str) -> str:
-    """从属性文件读取会议显示名称；无则返回空串。"""
+def read_props(folder: str) -> dict:
+    """读取会议属性文件的全部键值。"""
+    props = {}
     p = os.path.join(folder, MEETING_PROPS_FILE)
     if os.path.isfile(p):
         try:
             with open(p, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("name="):
-                        return line[5:].strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    props[k.strip()] = v.strip()
         except OSError:
             pass
-    return ""
+    return props
 
 
-def write_meeting_name(folder: str, name: str) -> str:
-    """写/更新会议显示名称到属性文件，返回属性文件路径。"""
-    name = name.strip()
+def write_props(folder: str, props: dict) -> str:
+    """合并写属性到属性文件（保留未知键与注释行），返回文件路径。"""
+    existing = read_props(folder)
+    existing.update({str(k).strip(): str(v).strip() for k, v in props.items()})
     p = os.path.join(folder, MEETING_PROPS_FILE)
     lines = []
     if os.path.isfile(p):
         with open(p, "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
-    found = False
-    for i, line in enumerate(lines):
-        if line.strip().startswith("name="):
-            lines[i] = f"name={name}"
-            found = True
-            break
-    if not found:
-        lines.append(f"name={name}")
+    out, written = [], set()
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            out.append(line)
+            continue
+        k = s.partition("=")[0].strip()
+        if k in existing:
+            out.append(f"{k}={existing[k]}")
+            written.add(k)
+    for k, v in existing.items():
+        if k not in written:
+            out.append(f"{k}={v}")
     with open(p, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write("\n".join(out) + "\n")
     return p
+
+
+def read_meeting_name(folder: str) -> str:
+    """从属性文件读取会议显示名称；无则返回空串。"""
+    return read_props(folder).get("name", "")
+
+
+def write_meeting_name(folder: str, name: str) -> str:
+    """写/更新会议显示名称到属性文件，返回属性文件路径。"""
+    return write_props(folder, {"name": name})
 
 
 def _next_seq(ym_dir: str, d: str) -> int:
@@ -288,11 +307,17 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus", 
 # 会议目录统一结构：audio(录音) / transcript(转写) / notes(纪要) / attachments(附件)
 MEETING_SUBDIRS = ("audio", "transcript", "notes", "attachments")
 
+# 会议通用属性（存 meeting.properties，Web 可编辑）：
+#   name=显示名称  date=日期  time=开始时间  location=地点
+#   organizer=主持人  participants=参会人(逗号分隔)  created=创建时间
+MEETING_PROP_KEYS = ("name", "date", "time", "location", "organizer", "participants", "created")
+
 AGENDA_TEMPLATE = """# {topic} 议程
 
 - **日期**：{date}
-- **时间**：
-- **参会人**：
+- **时间**：{time}
+- **参会人**：{participants}
+- **地点**：{location}
 
 ## 议题
 1. 
@@ -304,16 +329,38 @@ AGENDA_TEMPLATE = """# {topic} 议程
 
 
 def ensure_meeting_structure(folder: str) -> None:
-    """确保会议目录包含统一四目录与 agenda.md 议程模板。"""
+    """确保会议目录包含统一四目录、属性文件与 agenda.md 议程模板。"""
     md = parse_meeting(folder)
     for sub in MEETING_SUBDIRS:
         os.makedirs(os.path.join(folder, sub), exist_ok=True)
+
+    # 属性文件：合并默认属性（只补缺失键，不覆盖已有值）
+    props = read_props(folder)
+    today = date.today().strftime("%Y-%m-%d")
+    defaults = {
+        "name": md["topic"],
+        "date": md["date"] or today,
+        "time": "",
+        "location": "",
+        "organizer": "",
+        "participants": "",
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    missing = {k: v for k, v in defaults.items() if k not in props}
+    if missing:
+        write_props(folder, missing)
+
+    # 议程模板：用属性填充
     agenda = os.path.join(folder, "agenda.md")
     if not os.path.exists(agenda):
+        props = read_props(folder)
         with open(agenda, "w", encoding="utf-8") as f:
             f.write(AGENDA_TEMPLATE.format(
-                topic=md["topic"] or "会议",
-                date=md["date"] or date.today().strftime("%Y-%m-%d")))
+                topic=props.get("name") or md["topic"] or "会议",
+                date=props.get("date") or md["date"] or date.today().strftime("%Y-%m-%d"),
+                time=props.get("time", ""),
+                participants=props.get("participants", ""),
+                location=props.get("location", "")))
 
 
 def cmd_import(args) -> int:
@@ -450,8 +497,18 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
         warn(f"转写内容过短，跳过: {os.path.basename(txt_path)}")
         return ""
 
-    user = (f"会议名称: {meeting['topic']}\n"
-            f"会议日期: {meeting['date']}\n\n"
+    props = read_props(meeting["path"])
+    meta = [f"会议名称: {meeting['topic']}",
+            f"会议日期: {meeting['date']}"]
+    if props.get("time"):
+        meta.append(f"会议时间: {props['time']}")
+    if props.get("location"):
+        meta.append(f"会议地点: {props['location']}")
+    if props.get("organizer"):
+        meta.append(f"主持人: {props['organizer']}")
+    if props.get("participants"):
+        meta.append(f"参会人: {props['participants']}")
+    user = ("\n".join(meta) + "\n\n"
             "以下是语音转写文本，请生成会议纪要（包含：会议概况、讨论要点、决议/结论、待办事项表）：\n\n"
             f"{text}")
     info(f"  调用 DeepSeek 生成摘要 ...")

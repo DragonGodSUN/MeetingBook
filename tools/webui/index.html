@@ -69,6 +69,8 @@
   .item-card audio { width: 100%; margin-top: 6px; }
   .item-card pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; font-family: inherit; color: #374151; max-height: 400px; overflow-y: auto; }
   .agenda-card { background: #fbfcff; border-left: 3px solid var(--primary); }
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
+  .meta-item { font-size: 12px; color: var(--muted); background: #f0f3fb; padding: 3px 10px; border-radius: 14px; }
   .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
 
   /* ---- Markdown 内容样式 ---- */
@@ -163,6 +165,7 @@
     <div id="detailEmpty">从左侧选择一个会议</div>
     <div id="detailContent" style="display:none">
       <h2 id="detailTitle"></h2>
+      <div id="detailMeta" class="detail-meta"></div>
       <div id="detailAgenda" class="item-card agenda-card" style="display:none">
         <div class="name">📋 议程</div>
         <div class="md-body" id="detailAgendaBody"></div>
@@ -170,7 +173,7 @@
       <div class="actions">
         <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
         <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
-        <button class="btn" onclick="renameMeeting()">改名</button>
+        <button class="btn" onclick="openPropsModal()">编辑属性</button>
         <button class="btn" onclick="refreshDetail()">刷新</button>
       </div>
       <div class="tabs">
@@ -210,6 +213,24 @@
       <button class="btn" onclick="closeModal('importModal')">取消</button>
       <button class="btn primary" onclick="doImport()">导入</button>
     </div>
+  </div>
+</div>
+
+<!-- 会议属性编辑弹窗 -->
+<div class="modal-mask" id="propsModal">
+  <div class="modal">
+    <h3>编辑会议属性</h3>
+    <div class="row"><label>名称</label><input type="text" id="p_name"></div>
+    <div class="row"><label>时间（如 14:00）</label><input type="text" id="p_time" placeholder="14:00"></div>
+    <div class="row"><label>地点</label><input type="text" id="p_location" placeholder="3F 会议室"></div>
+    <div class="row"><label>主持人</label><input type="text" id="p_organizer"></div>
+    <div class="row"><label>参会人（逗号分隔）</label><input type="text" id="p_participants" placeholder="张三, 李四"></div>
+    <div class="err" id="propsErr"></div>
+    <div class="row-btns">
+      <button class="btn" onclick="closeModal('propsModal')">取消</button>
+      <button class="btn primary" onclick="saveProps()">保存</button>
+    </div>
+    <div class="note">属性保存到 meeting.properties，会同步到议程与纪要生成。</div>
   </div>
 </div>
 
@@ -278,6 +299,17 @@ async function refreshDetail() {
   $("detailContent").style.display = "block";
   $("detailTitle").textContent = d.date + " · " + d.title;
 
+  // 属性 meta 行（时间/地点/主持人/参会人）
+  const p = d.props || {};
+  const metas = [];
+  if (p.time) metas.push("🕐 " + p.time);
+  if (p.location) metas.push("📍 " + p.location);
+  if (p.organizer) metas.push("👤 主持人：" + p.organizer);
+  if (p.participants) metas.push("👥 " + p.participants);
+  $("detailMeta").innerHTML = metas.length
+    ? metas.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join("")
+    : "";
+
   // 议程（agenda.md）
   if (d.agenda && d.agenda.trim()) {
     $("detailAgenda").style.display = "block";
@@ -307,23 +339,37 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
 }
 
-/* ---------- 会议改名（写入属性文件，不改文件夹名） ---------- */
-async function renameMeeting() {
+/* ---------- 会议属性编辑（写 meeting.properties，不改文件夹名） ---------- */
+async function openPropsModal() {
   if (!currentMeeting) return;
-  let cur = "";
+  $("propsErr").textContent = "";
   try {
     const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
-    cur = d.title || "";
-  } catch (e) {}
-  const newName = prompt("修改会议名称：", cur);
-  if (newName === null || !newName.trim()) return;
+    const p = d.props || {};
+    $("p_name").value = p.name || "";
+    $("p_time").value = p.time || "";
+    $("p_location").value = p.location || "";
+    $("p_organizer").value = p.organizer || "";
+    $("p_participants").value = p.participants || "";
+    openModal("propsModal");
+  } catch (e) { alert("读取属性失败：" + e.message); }
+}
+async function saveProps() {
+  const props = {
+    name: $("p_name").value,
+    time: $("p_time").value,
+    location: $("p_location").value,
+    organizer: $("p_organizer").value,
+    participants: $("p_participants").value
+  };
   try {
-    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/rename",
+    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/props",
       { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }) });
+        body: JSON.stringify({ props }) });
+    closeModal("propsModal");
     await loadMeetings();
     await refreshDetail();
-  } catch (e) { alert("改名失败：" + e.message); }
+  } catch (e) { $("propsErr").textContent = e.message; }
 }
 
 /* ---------- 任务（转写/摘要/问答） ---------- */
