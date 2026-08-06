@@ -81,15 +81,20 @@ python tools/meetingbook.py transcribe --all                      # 转写所有
 python tools/meetingbook.py summarize --all                       # 为转写生成纪要（存 notes/）
 python tools/meetingbook.py search "性能优化"                     # 关键词检索转写/纪要
 python tools/meetingbook.py ask "上周决定了什么？"                # 检索 + LLM 问答
+python tools/meetingbook.py config                                # 查看 API Key 状态
+python tools/meetingbook.py config --set sk-xxx                   # 保存 API Key（写入 .env，不入库）
+python tools/meetingbook.py config --clear                        # 清除 .env 中的 API Key
 ```
 
 > 启动脚本 `启动会议助手.bat` / `start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
 
-**LLM 配置**（`summarize` / `ask` 需要，用 DeepSeek API）：
+**API Key 管理**（`summarize` / `ask` 需要，用 DeepSeek API）：
 1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 API Key
-2. 设置环境变量 `DEEPSEEK_API_KEY=sk-xxx`（或在项目根目录建 `.env` 文件写入，`.env` 已被 git 忽略）
-
-**依赖**：`pip install faster-whisper openai jieba`（首次已装好）
+2. 保存 key 二选一：
+   - 交互菜单：选择 **[6] 配置 API Key** 粘贴保存
+   - 命令行：`python tools/meetingbook.py config --set sk-xxx`
+3. Key 保存在项目根 `.env`（已被 git 忽略，不入库），程序自动加载；也可改用系统环境变量 `DEEPSEEK_API_KEY`
+4. `config` 无参数查看当前状态（key 掩码显示）；`config --clear` 清除
 
 
 

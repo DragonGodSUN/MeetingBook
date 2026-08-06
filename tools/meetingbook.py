@@ -50,9 +50,14 @@ def err(msg):  print(c(msg, "31"), file=sys.stderr)  # 红
 
 # ---------- 配置 ----------
 
+def env_file_path() -> str:
+    """本地密钥配置文件 .env 的路径（已被 .gitignore 忽略）。"""
+    return os.path.join(ROOT, ".env")
+
+
 def load_env() -> None:
-    """读取项目根目录 .env（KEY=VALUE 简单格式），不覆盖已有环境变量。"""
-    env_path = os.path.join(ROOT, ".env")
+    """加载项目根目录 .env（KEY=VALUE 简单格式），不覆盖已有环境变量。"""
+    env_path = env_file_path()
     if not os.path.isfile(env_path):
         return
     with open(env_path, "r", encoding="utf-8") as f:
@@ -66,14 +71,58 @@ def load_env() -> None:
                 os.environ[k] = v
 
 
+def save_api_key(key: str) -> str:
+    """把 API Key 写入 .env（已有则更新，否则追加），返回 .env 路径。"""
+    key = key.strip().strip('"').strip("'")
+    env_path = env_file_path()
+    lines = []
+    if os.path.isfile(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("DEEPSEEK_API_KEY="):
+            lines[i] = f"DEEPSEEK_API_KEY={key}"
+            found = True
+            break
+    if not found:
+        lines.append(f"DEEPSEEK_API_KEY={key}")
+    os.makedirs(os.path.dirname(env_path), exist_ok=True)
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return env_path
+
+
+def clear_api_key() -> bool:
+    """从 .env 移除 DEEPSEEK_API_KEY；返回是否发生了删除。"""
+    env_path = env_file_path()
+    if not os.path.isfile(env_path):
+        return False
+    with open(env_path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    keep = [l for l in lines if not l.strip().startswith("DEEPSEEK_API_KEY=")]
+    if len(keep) == len(lines):
+        return False
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(keep) + ("\n" if keep else ""))
+    return True
+
+
+def mask_key(key: str) -> str:
+    """掩码显示：sk-abc…wxyz。"""
+    if len(key) <= 10:
+        return key[:4] + "…"
+    return key[:6] + "…" + key[-4:]
+
+
 def get_api_key() -> str:
     load_env()
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
         raise SystemExit(
             "未配置 DeepSeek API Key。\n"
-            "  方式一（推荐）: 设置系统环境变量 DEEPSEEK_API_KEY=sk-xxx 后重开终端\n"
-            "  方式二: 在项目根目录创建 .env 文件，写入 DEEPSEEK_API_KEY=sk-xxx"
+            "  保存: python tools/meetingbook.py config --set sk-xxx\n"
+            "  或设置系统环境变量 DEEPSEEK_API_KEY=sk-xxx"
         )
     return key
 
@@ -512,6 +561,51 @@ def cmd_list(args) -> int:
     return 0
 
 
+# ---------- API Key 配置 ----------
+
+def cmd_config(args) -> int:
+    load_env()
+    current = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+
+    if args.path:
+        info(f".env 路径: {env_file_path()}")
+        return 0
+
+    if args.set:
+        key = args.set.strip().strip('"').strip("'")
+        if not key:
+            err("Key 不能为空。")
+            return 1
+        if not key.startswith("sk-"):
+            warn("Key 通常以 sk- 开头，请确认复制完整。")
+        path = save_api_key(key)
+        os.environ["DEEPSEEK_API_KEY"] = key  # 当前会话立即生效
+        ok(f"API Key 已保存: {mask_key(key)}")
+        info(f"  文件: {os.path.relpath(path, ROOT)}（已被 git 忽略，不会入库）")
+        return 0
+
+    if args.clear:
+        removed = clear_api_key()
+        os.environ.pop("DEEPSEEK_API_KEY", None)
+        if removed:
+            ok("已清除 .env 中的 API Key。")
+        else:
+            info(".env 中本来就没有 API Key。")
+        if os.environ.get("DEEPSEEK_API_KEY"):
+            info("系统环境变量中的 DEEPSEEK_API_KEY 仍然生效；如需彻底移除，请删除系统环境变量。")
+        return 0
+
+    # 默认：显示状态
+    if current:
+        ok(f"API Key 已配置: {mask_key(current)}")
+        info(f"  来源: 环境变量或 .env（{env_file_path()}）")
+    else:
+        warn("API Key 未配置。")
+        info("  保存: python tools/meetingbook.py config --set sk-xxx")
+        info("  或设置系统环境变量 DEEPSEEK_API_KEY=sk-xxx")
+    return 0
+
+
 # ---------- 交互菜单 ----------
 
 def main_menu() -> int:
@@ -519,10 +613,11 @@ def main_menu() -> int:
     print(c("========== MeetingBook 会议助手 ==========", "1;36"))
     print("  [1] 导入音频     [2] 转写")
     print("  [3] 生成摘要     [4] 检索提问")
-    print("  [5] 列出会议     [0] 退出")
+    print("  [5] 列出会议     [6] 配置 API Key")
+    print("  [0] 退出")
     while True:
         try:
-            ch = input(c("\n选择 (0-5): ", "36")).strip()
+            ch = input(c("\n选择 (0-6): ", "36")).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -558,6 +653,22 @@ def main_menu() -> int:
                 cmd_search(SimpleNamespace(query=q, meeting=None, top_k=5))
         elif ch == "5":
             cmd_list(SimpleNamespace())
+        elif ch == "6":
+            load_env()
+            cur = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+            if cur:
+                info(f"当前已配置: {mask_key(cur)}")
+                act = input("操作: s) 覆盖  c) 清除  回车返回: ").strip().lower()
+                if act == "c":
+                    cmd_config(SimpleNamespace(set=None, clear=True, path=False))
+                elif act == "s":
+                    k = input("粘贴新的 API Key (sk-...): ").strip()
+                    if k:
+                        cmd_config(SimpleNamespace(set=k, clear=False, path=False))
+            else:
+                k = input("粘贴 API Key (sk-...，回车跳过): ").strip()
+                if k:
+                    cmd_config(SimpleNamespace(set=k, clear=False, path=False))
         else:
             warn("无效选择。")
     return 0
@@ -609,6 +720,11 @@ def main() -> int:
 
     sub.add_parser("list", help="列出所有会议")
 
+    p = sub.add_parser("config", help="查看/设置/清除 DeepSeek API Key")
+    p.add_argument("--set", metavar="sk-xxx", help="保存 API Key 到 .env（本地，不入库）")
+    p.add_argument("--clear", action="store_true", help="清除 .env 中的 API Key")
+    p.add_argument("--path", action="store_true", help="显示 .env 文件路径")
+
     args = parser.parse_args()
     if not args.cmd:
         return main_menu()
@@ -616,7 +732,7 @@ def main() -> int:
     handlers = {
         "import": cmd_import, "transcribe": cmd_transcribe,
         "summarize": cmd_summarize, "search": cmd_search,
-        "ask": cmd_ask, "list": cmd_list,
+        "ask": cmd_ask, "list": cmd_list, "config": cmd_config,
     }
     return handlers[args.cmd](args)
 

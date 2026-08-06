@@ -64,7 +64,8 @@ if (-not $env:DEEPSEEK_API_KEY) {
     }
     if (-not $HasKey) {
         Write-Host "[NOTE] DEEPSEEK_API_KEY not found: summarize/ask need it." -ForegroundColor Yellow
-        Write-Host "       Set env var DEEPSEEK_API_KEY or create .env with DEEPSEEK_API_KEY=sk-..." -ForegroundColor Yellow
+        Write-Host "       Inside the menu choose [6] Configure API Key, or run:" -ForegroundColor Yellow
+        Write-Host "       python tools\meetingbook.py config --set sk-..." -ForegroundColor Yellow
     }
 }
 
