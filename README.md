@@ -31,6 +31,40 @@ MeetingBook/
 3. **纪要**：用 Markdown 写纪要，放入 `notes/`；转写文本放 `transcript/`。
 4. **提交**：`git add . && git commit -m "..."` —— 只提交文本类内容。
 
+## 音频转写（faster-whisper）
+
+用本地 Whisper 模型自动把 `audio/` 里的录音转成带时间戳的文本，输出到 `transcript/`。
+
+```powershell
+# 基本用法（默认 medium 模型，自动检测语言）
+python tools/transcribe.py "2026/2026-08-06-产品评审/audio/录音.m4a"
+
+# 指定中文与更准的模型
+python tools/transcribe.py audio.m4a --model large-v3 --language zh
+
+# 指定输出目录
+python tools/transcribe.py audio.m4a --output-dir "2026/2026-08-06-产品评审/transcript"
+```
+
+**环境依赖**（首次已配置好）：
+- Python 3.12 + `pip install faster-whisper`
+- FFmpeg（解码 m4a/mp3/wav 等）
+- 模型自动从 HuggingFace 下载，缓存于 `%USERPROFILE%\.cache\huggingface`
+- 已持久化的环境变量（国内网络必需）：
+  - `HF_ENDPOINT=https://hf-mirror.com` — 模型镜像源
+  - `HF_HUB_DISABLE_XET=1` — 禁用镜像不支持的 xet 下载协议
+  - `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` — 指向 certifi 根证书，修复 Python SSL 校验
+
+**模型大小参考**（RTX 2060 6GB）：
+| 模型 | 显存占用 | 速度 | 中文准确率 |
+| ---- | ------- | ---- | --------- |
+| small | ~1GB | 极快 | 一般 |
+| medium | ~2.5GB | 快 | 好（默认） |
+| large-v3 | ~5GB | 中等 | 最好 |
+
+> 转写后建议对照 `transcript/` 的文本整理 `notes/` 纪要，可用下方模板。
+
+
 ## 建议的纪要模板
 
 ```markdown
