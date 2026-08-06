@@ -15,8 +15,8 @@ param(
 
 $ErrorActionPreference = "Continue"  # native commands: rely on $LASTEXITCODE
 
-# --- locate project root (this script lives in the root) ---
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# --- locate project root (this script lives in <root>/scripts) ---
+$Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 
 Write-Host "==============================================" -ForegroundColor Cyan

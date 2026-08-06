@@ -8,9 +8,17 @@
 MeetingBook/
 ├── README.md
 ├── .gitignore
-└── <年份>/
-    └── <YYYY-MM-DD>-<会议主题>/        # 一次会议一个文件夹
-        ├── agenda.md                  # 会议议程（可选）
+├── .env                     # API Key（本地，已被 git 忽略）
+├── tools/                   # 程序代码（meetingbook.py / transcribe.py / webui.py）
+├── scripts/                 # 启动/关闭脚本（双击运行）
+│   ├── 启动会议助手.bat
+│   ├── 启动可视化界面.bat
+│   ├── 关闭可视化界面.bat
+│   ├── start_meetingbook.ps1
+│   └── stop_webui.ps1
+└── <年份>/                  # 会议数据
+    └── <YYYY-MM-DD>-<会议主题>/        # 一次会议一个文件夹（导入时自动创建）
+        ├── agenda.md                  # 议程模板（自动生成，可编辑）
         ├── audio/                     # 录音文件（git 已忽略，仅本地）
         ├── transcript/                # 语音转写文本
         ├── notes/                     # 纪要 / 笔记（Markdown）
@@ -20,9 +28,13 @@ MeetingBook/
 ## 命名约定
 
 - **会议文件夹**：`YYYY-MM-DD-主题`，如 `2026-08-06-产品评审`
-- **纪要文件**：`notes/YYYY-MM-DD-主题-纪要.md`（或直接 `notes/纪要.md`）
+- **转写文件**：`transcript/<音频名>-转写.txt`
+- **纪要文件**：`notes/<音频名>-纪要.md`（由转写自动生成时自动去掉冗余的“-转写”）
 - **音频**：放入 `audio/`，如 `2026-08-06-产品评审-录音.m4a`
 - 同一主题一天多场会议可加后缀 `-1`、`-2`
+
+> 每个会议目录固定四子目录（audio / transcript / notes / attachments）+ agenda.md，
+> 导入音频或转写/摘要时会自动补齐，无需手动创建。
 
 ## 使用说明
 
@@ -69,11 +81,11 @@ python tools/transcribe.py audio.m4a --output-dir "2026/2026-08-06-产品评审/
 本地 Web 界面：可视化操作全部功能（导入、转写进度、纪要、音频播放、检索问答、API Key 配置）。
 
 ```powershell
-# 双击根目录的「启动可视化界面.bat」自动打开浏览器，或命令行：
+# 双击 scripts/ 下的「启动可视化界面.bat」自动打开浏览器，或命令行：
 python tools/webui.py                # 启动并自动打开浏览器（默认 http://127.0.0.1:8765）
 python tools/webui.py --no-browser --port 8080
 
-# 关闭界面：双击「关闭可视化界面.bat」（按端口 8765 / webui.py 进程自动定位并终止）
+# 关闭界面：双击 scripts/ 下的「关闭可视化界面.bat」（按端口 8765 / webui.py 进程自动定位并终止）
 ```
 
 界面功能：
@@ -88,9 +100,11 @@ python tools/webui.py --no-browser --port 8080
 一站式管理会议：**导入音频 → 转写 → 摘要 → 检索提问**。
 
 ```powershell
-# 一键启动（推荐）：双击根目录的「启动会议助手.bat」，或命令行运行
-.\启动会议助手.bat            # 交互式主菜单
-.\启动会议助手.bat search "性能优化"   # 可直接带子命令参数
+# 一键启动（推荐）：双击 scripts/ 下的 bat，或命令行运行
+.\scripts\启动会议助手.bat          # 交互式主菜单
+.\scripts\启动会议助手.bat search "性能优化"   # 可直接带子命令参数
+.\scripts\启动可视化界面.bat        # Web 可视化界面（自动开浏览器）
+.\scripts\关闭可视化界面.bat        # 停止 Web 界面服务
 
 # 或直接调用
 python tools/meetingbook.py   # 交互式主菜单
@@ -105,7 +119,7 @@ python tools/meetingbook.py config --set sk-xxx                   # 保存 API K
 python tools/meetingbook.py config --clear                        # 清除 .env 中的 API Key
 ```
 
-> 启动脚本 `启动会议助手.bat` / `start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
+> 启动脚本 `scripts/启动会议助手.bat` / `scripts/start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
 
 **API Key 管理**（`summarize` / `ask` 需要，用 DeepSeek API）：
 1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 API Key

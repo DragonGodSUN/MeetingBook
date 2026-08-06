@@ -219,6 +219,36 @@ def meeting_choose_interactive(prompt: str = "选择会议") -> str | None:
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus", ".amr", ".3gp", ".webm"}
 
+# 会议目录统一结构：audio(录音) / transcript(转写) / notes(纪要) / attachments(附件)
+MEETING_SUBDIRS = ("audio", "transcript", "notes", "attachments")
+
+AGENDA_TEMPLATE = """# {topic} 议程
+
+- **日期**：{date}
+- **时间**：
+- **参会人**：
+
+## 议题
+1. 
+2. 
+
+## 备注
+
+"""
+
+
+def ensure_meeting_structure(folder: str) -> None:
+    """确保会议目录包含统一四目录与 agenda.md 议程模板。"""
+    md = parse_meeting(folder)
+    for sub in MEETING_SUBDIRS:
+        os.makedirs(os.path.join(folder, sub), exist_ok=True)
+    agenda = os.path.join(folder, "agenda.md")
+    if not os.path.exists(agenda):
+        with open(agenda, "w", encoding="utf-8") as f:
+            f.write(AGENDA_TEMPLATE.format(
+                topic=md["topic"] or "会议",
+                date=md["date"] or date.today().strftime("%Y-%m-%d")))
+
 
 def cmd_import(args) -> int:
     src = os.path.abspath(args.audio)
@@ -240,6 +270,7 @@ def cmd_import(args) -> int:
     year = d[:4]
     folder = os.path.join(ROOT, year, f"{d}-{topic}")
     audio_dir = os.path.join(folder, "audio")
+    ensure_meeting_structure(folder)  # 统一四目录 + agenda.md
     os.makedirs(audio_dir, exist_ok=True)
 
     # 重名处理：加序号
@@ -283,6 +314,7 @@ def cmd_transcribe(args) -> int:
 
     total = 0
     for m in meetings:
+        ensure_meeting_structure(m)
         audio_dir = os.path.join(m, "audio")
         if not os.path.isdir(audio_dir):
             continue
@@ -332,6 +364,14 @@ SUMMARY_SYSTEM = (
 )
 
 
+def note_name_for(transcript_file: str) -> str:
+    """由转写文件名推导纪要文件名：X-转写.txt -> X-纪要.md（去掉冗余的“-转写”）。"""
+    base = os.path.splitext(transcript_file)[0]
+    if base.endswith("-转写"):
+        base = base[:-3]
+    return f"{base}-纪要.md"
+
+
 def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str:
     with open(txt_path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -350,8 +390,7 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
     if save:
         notes_dir = os.path.join(meeting["path"], "notes")
         os.makedirs(notes_dir, exist_ok=True)
-        base = os.path.splitext(os.path.basename(txt_path))[0]
-        out = os.path.join(notes_dir, f"{base}-纪要.md")
+        out = os.path.join(notes_dir, note_name_for(os.path.basename(txt_path)))
         with open(out, "w", encoding="utf-8") as f:
             f.write(summary + "\n")
         return out
@@ -368,6 +407,7 @@ def cmd_summarize(args) -> int:
 
     total = 0
     for m in meetings:
+        ensure_meeting_structure(m)
         t_dir = os.path.join(m, "transcript")
         if not os.path.isdir(t_dir):
             continue
@@ -376,8 +416,7 @@ def cmd_summarize(args) -> int:
             if not f.endswith("-转写.txt"):
                 continue
             txt = os.path.join(t_dir, f)
-            base = os.path.splitext(f)[0]
-            note = os.path.join(m, "notes", f"{base}-纪要.md")
+            note = os.path.join(m, "notes", note_name_for(f))
             if os.path.exists(note) and not args.force:
                 info(f"跳过（已有纪要）: {f}")
                 continue

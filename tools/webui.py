@@ -71,6 +71,7 @@ def task_transcribe(cb, meeting, model, language, force):
     m = mb.pick_meeting(meeting)
     if not m:
         raise RuntimeError(f"未找到会议: {meeting}")
+    mb.ensure_meeting_structure(m)
     audio_dir, t_dir = os.path.join(m, "audio"), os.path.join(m, "transcript")
     os.makedirs(t_dir, exist_ok=True)
     files = sorted(f for f in os.listdir(audio_dir)
@@ -99,13 +100,14 @@ def task_summarize(cb, meeting, force):
     m = mb.pick_meeting(meeting)
     if not m:
         raise RuntimeError(f"未找到会议: {meeting}")
+    mb.ensure_meeting_structure(m)
     t_dir = os.path.join(m, "transcript")
     if not os.path.isdir(t_dir):
         return {"done": [], "already": True}
     md = mb.parse_meeting(m)
     files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
     todo = [f for f in files
-            if force or not os.path.exists(os.path.join(m, "notes", f"{os.path.splitext(f)[0]}-纪要.md"))]
+            if force or not os.path.exists(os.path.join(m, "notes", mb.note_name_for(f)))]
     if not todo:
         return {"done": [], "already": True}
     done, failed = [], []
@@ -163,6 +165,10 @@ def serve_file(filepath):
 def meeting_detail(m: str) -> dict:
     md = mb.parse_meeting(m)
     audio, transcripts, notes = [], [], []
+    agenda = ""
+    ag = os.path.join(m, "agenda.md")
+    if os.path.isfile(ag):
+        agenda = _read_text(ag)
     for sub, out in (("audio", audio), ("transcript", transcripts), ("notes", notes)):
         d = os.path.join(m, sub)
         if os.path.isdir(d):
@@ -180,6 +186,7 @@ def meeting_detail(m: str) -> dict:
                     item["content"] = _read_text(os.path.join(d, f))
                 out.append(item)
     return {"name": md["name"], "date": md["date"], "topic": md["topic"],
+            "agenda": agenda,
             "audio": audio, "transcripts": transcripts, "notes": notes}
 
 

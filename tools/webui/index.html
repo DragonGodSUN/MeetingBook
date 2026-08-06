@@ -68,6 +68,7 @@
   .item-card .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
   .item-card audio { width: 100%; margin-top: 6px; }
   .item-card pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; font-family: inherit; color: #374151; max-height: 400px; overflow-y: auto; }
+  .agenda-card { background: #fbfcff; border-left: 3px solid var(--primary); }
   .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
 
   /* ---- Markdown 内容样式 ---- */
@@ -162,6 +163,10 @@
     <div id="detailEmpty">从左侧选择一个会议</div>
     <div id="detailContent" style="display:none">
       <h2 id="detailTitle"></h2>
+      <div id="detailAgenda" class="item-card agenda-card" style="display:none">
+        <div class="name">📋 议程</div>
+        <div class="md-body" id="detailAgendaBody"></div>
+      </div>
       <div class="actions">
         <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
         <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
@@ -271,6 +276,14 @@ async function refreshDetail() {
   $("detailEmpty").style.display = "none";
   $("detailContent").style.display = "block";
   $("detailTitle").textContent = d.date + " · " + d.topic;
+
+  // 议程（agenda.md）
+  if (d.agenda && d.agenda.trim()) {
+    $("detailAgenda").style.display = "block";
+    $("detailAgendaBody").innerHTML = renderMd(d.agenda);
+  } else {
+    $("detailAgenda").style.display = "none";
+  }
 
   $("tab-audio").innerHTML = d.audio.length ? d.audio.map(a =>
     `<div class="item-card"><div class="name"><span>${escapeHtml(a.name)}</span><span style="color:var(--muted);font-weight:400">${a.size_mb} MB</span></div><audio controls preload="metadata" src="${a.url}"></audio></div>`
