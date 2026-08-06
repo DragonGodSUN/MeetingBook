@@ -154,7 +154,30 @@ MEETING_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{3})$")
 MEETING_PROPS_FILE = "meeting.properties"
 
 # 会议数据统一根目录：meetings/年/年月/会议
-MEETINGS_ROOT = os.path.join(ROOT, "meetings")
+# 可通过 .env 或环境变量 MEETINGS_ROOT 指向项目外目录（支持中文路径）
+load_env()  # 确保 .env 中 MEETINGS_ROOT 等变量可用
+_meetings_env = os.environ.get("MEETINGS_ROOT", "").strip()
+MEETINGS_ROOT = os.path.abspath(_meetings_env) if _meetings_env else os.path.join(ROOT, "meetings")
+
+
+def safe_join(root: str, *parts: str) -> str:
+    """安全拼接路径：解析后必须位于 root 内，否则抛 ValueError（防路径穿越/越权）。"""
+    root_real = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(root_real, *parts))
+    if full != root_real and not full.startswith(root_real + os.sep):
+        raise ValueError(f"路径越权: {os.path.join(*parts)} 超出数据目录")
+    return full
+
+
+def display_path(p: str) -> str:
+    """显示友好路径：与项目同盘用相对 ROOT，否则用相对数据目录，再否则绝对路径（支持跨盘/中文路径）。"""
+    try:
+        return os.path.relpath(p, ROOT)
+    except ValueError:
+        try:
+            return os.path.relpath(p, MEETINGS_ROOT)
+        except ValueError:
+            return p
 
 
 def read_props(folder: str) -> dict:
@@ -381,10 +404,10 @@ def cmd_import(args) -> int:
     # 文件夹名 = 日期-序号（当天从 001 递增）；显示名称存属性文件
     display = (args.meeting or "").strip()
     year, month = d[:4], d[:7]
-    ym_dir = os.path.join(MEETINGS_ROOT, year, month)
+    ym_dir = safe_join(MEETINGS_ROOT, year, month)
     os.makedirs(ym_dir, exist_ok=True)
     seq = _next_seq(ym_dir, d)
-    folder = os.path.join(ym_dir, f"{d}-{seq:03d}")
+    folder = safe_join(MEETINGS_ROOT, year, month, f"{d}-{seq:03d}")
     audio_dir = os.path.join(folder, "audio")
     ensure_meeting_structure(folder)  # 统一四目录 + agenda.md
     os.makedirs(audio_dir, exist_ok=True)
@@ -402,8 +425,8 @@ def cmd_import(args) -> int:
         shutil.move(src, dst)
     else:
         shutil.copy2(src, dst)
-    ok(f"已导入: {os.path.relpath(dst, ROOT)}")
-    info(f"会议目录: {os.path.relpath(folder, ROOT)}")
+    ok(f"已导入: {display_path(dst)}")
+    info(f"会议目录: {display_path(folder)}")
     if not args.move:
         info("原文件已保留（如需移动可用 --move）。")
     return 0
@@ -445,7 +468,7 @@ def cmd_transcribe(args) -> int:
             if os.path.exists(out) and not args.force:
                 info(f"跳过（已转写）: {f}")
                 continue
-            info(f"转写: {os.path.relpath(os.path.join(m, 'audio', f), ROOT)}")
+            info(f"转写: {display_path(os.path.join(m, 'audio', f))}")
             try:
                 transcribe_audio(os.path.join(audio_dir, f),
                                  model_size=args.model,
@@ -550,7 +573,7 @@ def cmd_summarize(args) -> int:
             info(f"摘要: {f}")
             out = summarize_transcript(txt, md, save=not args.no_save)
             if out:
-                ok(f"  已生成: {os.path.relpath(out, ROOT)}")
+                ok(f"  已生成: {display_path(out)}")
                 total += 1
     ok(f"摘要完成，共 {total} 份。")
     return 0
@@ -768,7 +791,7 @@ def cmd_remove(args) -> int:
         warn("已取消，未做任何修改。")
         return 0
     dst = trash_meeting(m)
-    ok(f"已移入回收站: {os.path.relpath(dst, ROOT)}")
+    ok(f"已移入回收站: {display_path(dst)}")
     info("如需恢复：把该目录从 .trash/ 移回 meetings/<年>/<年月>/ 即可。")
     return 0
 
@@ -793,7 +816,7 @@ def cmd_config(args) -> int:
         path = save_api_key(key)
         os.environ["DEEPSEEK_API_KEY"] = key  # 当前会话立即生效
         ok(f"API Key 已保存: {mask_key(key)}")
-        info(f"  文件: {os.path.relpath(path, ROOT)}（已被 git 忽略，不会入库）")
+        info(f"  文件: {display_path(path)}（已被 git 忽略，不会入库）")
         return 0
 
     if args.clear:

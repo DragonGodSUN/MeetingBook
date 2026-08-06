@@ -154,10 +154,10 @@ def index():
 
 @app.get("/files/<path:filepath>")
 def serve_file(filepath):
-    """服务仓库内文件（用于音频播放），限制在项目根目录内。"""
-    full = os.path.realpath(os.path.join(ROOT, filepath))
-    root_real = os.path.realpath(ROOT)
-    if full != root_real and not full.startswith(root_real + os.sep):
+    """服务数据目录内文件（用于音频播放），限制在 MEETINGS_ROOT 内（支持项目外/中文路径）。"""
+    try:
+        full = mb.safe_join(mb.MEETINGS_ROOT, filepath)
+    except ValueError:
         abort(404)
     if not os.path.isfile(full):
         abort(404)
@@ -179,7 +179,7 @@ def meeting_detail(m: str) -> dict:
             for f in sorted(os.listdir(d)):
                 if f == ".gitkeep":
                     continue
-                rel = os.path.relpath(os.path.join(d, f), ROOT).replace("\\", "/")
+                rel = os.path.relpath(os.path.join(d, f), mb.MEETINGS_ROOT).replace("\\", "/")
                 item = {"name": f, "path": rel}
                 if sub == "audio":
                     item["url"] = f"/files/{rel}"
@@ -247,7 +247,7 @@ def api_meeting_remove(name):
     if not m:
         return jsonify({"error": "会议不存在"}), 404
     dst = mb.trash_meeting(m)
-    return jsonify({"ok": True, "trash": os.path.relpath(dst, ROOT).replace("\\", "/")})
+    return jsonify({"ok": True, "trash": mb.display_path(dst).replace("\\", "/")})
 
 
 @app.post("/api/meeting/<name>/props")
@@ -399,6 +399,7 @@ def main() -> int:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"MeetingBook Web 界面已启动: {url}  (Ctrl+C 退出)")
     print(f"会议仓库: {ROOT}")
+    print(f"会议数据目录: {mb.MEETINGS_ROOT}")
     app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
 
