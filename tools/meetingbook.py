@@ -610,12 +610,12 @@ def cmd_summarize(args) -> int:
     for m in meetings:
         ensure_meeting_structure(m)
         t_dir = os.path.join(m, "transcript")
-        if not os.path.isdir(t_dir):
+        t_files = [f for f in os.listdir(t_dir) if f.endswith("-转写.txt")] if os.path.isdir(t_dir) else []
+        if not t_files:
+            warn(f"「{parse_meeting(m)['topic']}」没有转写文本——请先转写音频，再生成纪要。")
             continue
         md = parse_meeting(m)
-        for f in sorted(os.listdir(t_dir)):
-            if not f.endswith("-转写.txt"):
-                continue
+        for f in t_files:
             txt = os.path.join(t_dir, f)
             note = os.path.join(m, "notes", note_name_for(f))
             if os.path.exists(note) and not args.force:
@@ -627,6 +627,85 @@ def cmd_summarize(args) -> int:
                 ok(f"  已生成: {display_path(out)}")
                 total += 1
     ok(f"摘要完成，共 {total} 份。")
+    return 0
+
+
+# ---------- 属性自动填充（从转写文本提取） ----------
+
+AUTOFILL_SYSTEM = (
+    "你是会议信息提取助手。根据提供的会议转写文本，提取会议元信息。"
+    "只输出一个 JSON 对象，字段：time（开始时间，格式如 14:00）、location（地点）、"
+    "organizer（主持人姓名）、participants（参会人姓名，逗号分隔）。"
+    "提取不到的信息用空字符串。不要输出 JSON 以外的任何内容。"
+)
+
+AUTOFILL_KEYS = ("time", "location", "organizer", "participants")
+
+
+def _parse_llm_json(text: str) -> dict:
+    """容错解析 LLM 输出的 JSON（去除 ```json 围栏，降级按行解析）。"""
+    import json as _json
+    t = (text or "").strip()
+    m = re.search(r"\{.*\}", t, re.DOTALL)
+    if m:
+        t = m.group(0)
+    try:
+        data = _json.loads(t)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        result = {}
+        for line in t.splitlines():
+            mm = re.match(r'["\']?(\w+)["\']?\s*[:：]\s*["\']?([^"\'\n]*)["\']?', line.strip())
+            if mm:
+                result[mm.group(1)] = mm.group(2).strip()
+        return result
+
+
+def autofill_meeting(folder: str, force: bool = False) -> dict:
+    """从转写文本用 LLM 提取属性并写入 meeting.properties（缺失或空值才填，force 覆盖）。"""
+    md = parse_meeting(folder)
+    t_dir = os.path.join(folder, "transcript")
+    texts = []
+    if os.path.isdir(t_dir):
+        for f in sorted(os.listdir(t_dir)):
+            if f.endswith("-转写.txt"):
+                with open(os.path.join(t_dir, f), "r", encoding="utf-8", errors="ignore") as fh:
+                    texts.append(fh.read())
+    if not texts:
+        raise RuntimeError("该会议没有转写文本——请先转写音频。")
+    props = read_props(folder)
+    if not force and all(props.get(k) for k in AUTOFILL_KEYS):
+        return props  # 属性已齐全，跳过
+    user = (f"会议名称: {md['topic']}\n会议日期: {md['date']}\n\n转写文本：\n"
+            + "\n".join(texts))
+    resp = llm_chat(AUTOFILL_SYSTEM, user, temperature=0.0, max_tokens=512)
+    extracted = _parse_llm_json(resp)
+    to_write = {}
+    for k in AUTOFILL_KEYS:
+        v = str(extracted.get(k, "")).strip()
+        if v and (force or not props.get(k)):
+            to_write[k] = v
+    if to_write:
+        write_props(folder, to_write)
+    return read_props(folder)
+
+
+def cmd_autofill(args) -> int:
+    meetings = find_meetings()
+    if args.meeting:
+        target = pick_meeting(args.meeting)
+        if not target:
+            return 1
+        meetings = [target]
+    for m in meetings:
+        md = parse_meeting(m)
+        info(f"从转写提取属性: {md['date']} {md['topic']} ...")
+        try:
+            props = autofill_meeting(m, force=args.force)
+            filled = [f"{k}={v}" for k, v in props.items() if k in AUTOFILL_KEYS and v]
+            ok(f"  属性: {', '.join(filled) if filled else '(未提取到可填充项)'}")
+        except Exception as e:  # noqa: BLE001
+            err(f"  {e}")
     return 0
 
 
@@ -1016,6 +1095,10 @@ def main() -> int:
     p = sub.add_parser("remove", help="删除会议（移入回收站 .trash，可恢复）")
     p.add_argument("meeting", help="会议名（日期/序号/显示名子串）")
 
+    p = sub.add_parser("autofill", help="从转写文本自动提取并填充会议属性")
+    p.add_argument("--meeting", help="指定会议（默认最新）")
+    p.add_argument("--force", action="store_true", help="覆盖已填写的属性")
+
     args = parser.parse_args()
     if not args.cmd:
         return main_menu()
@@ -1024,7 +1107,7 @@ def main() -> int:
         "import": cmd_import, "transcribe": cmd_transcribe,
         "summarize": cmd_summarize, "search": cmd_search,
         "ask": cmd_ask, "list": cmd_list, "config": cmd_config,
-        "remove": cmd_remove,
+        "remove": cmd_remove, "autofill": cmd_autofill,
     }
     return handlers[args.cmd](args)
 

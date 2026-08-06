@@ -97,7 +97,25 @@ def task_transcribe(cb, meeting, model, language, force):
             done.append(os.path.basename(out))
         except Exception as e:  # noqa: BLE001
             failed.append({"file": f, "error": str(e)})
+    # 转写完成后自动从转写提取会议属性（LLM 失败不影响转写结果）
+    if done:
+        try:
+            cb("autofilling", {"meeting": mname})
+            mb.autofill_meeting(m, force=False)
+        except Exception:  # noqa: BLE001
+            pass
     return {"done": done, "failed": failed, "skipped": len(files) - len(todo)}
+
+
+def task_autofill(cb, meeting, force):
+    """从转写文本提取属性填充 meeting.properties。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    cb("autofilling", {"meeting": mb.parse_meeting(m)["topic"]})
+    props = mb.autofill_meeting(m, force=force)
+    filled = {k: v for k, v in props.items() if k in mb.AUTOFILL_KEYS and v}
+    return {"filled": filled}
 
 
 def task_summarize(cb, meeting, force):
@@ -107,9 +125,11 @@ def task_summarize(cb, meeting, force):
     mb.ensure_meeting_structure(m)
     t_dir = os.path.join(m, "transcript")
     if not os.path.isdir(t_dir):
-        return {"done": [], "already": True}
+        raise RuntimeError("该会议没有转写文本——请先转写音频，再生成纪要。")
     md = mb.parse_meeting(m)
     files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
+    if not files:
+        raise RuntimeError("该会议没有转写文本——请先转写音频，再生成纪要。")
     todo = [f for f in files
             if force or not os.path.exists(os.path.join(m, "notes", mb.note_name_for(f)))]
     if not todo:
@@ -344,6 +364,17 @@ def api_search():
     hits = idx.search(query, top_k=int(data.get("top_k", 5)))
     return jsonify({"hits": [{"meeting": h["meeting"], "file": h["file"], "kind": h["kind"],
                               "score": round(h["score"], 2), "text": h["text"]} for h in hits]})
+
+
+@app.post("/api/autofill")
+def api_autofill():
+    """从转写文本自动提取会议属性并填充。"""
+    data = request.get_json(force=True)
+    meeting = data.get("meeting", "")
+    if not meeting:
+        return jsonify({"error": "缺少会议"}), 400
+    tid = start_task("autofill", task_autofill, meeting, bool(data.get("force")))
+    return jsonify({"task": tid})
 
 
 @app.get("/api/task/<tid>")

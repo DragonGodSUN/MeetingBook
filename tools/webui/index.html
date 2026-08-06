@@ -257,10 +257,10 @@
     <div class="row"><label>参会人（逗号分隔）</label><input type="text" id="p_participants" placeholder="张三, 李四"></div>
     <div class="err" id="propsErr"></div>
     <div class="row-btns">
-      <button class="btn" onclick="closeModal('propsModal')">取消</button>
+      <button class="btn" onclick="autoFillFromTranscript()">从转写自动填充</button>
       <button class="btn primary" onclick="saveProps()">保存</button>
     </div>
-    <div class="note">属性保存到 meeting.properties，会同步到议程与纪要生成。</div>
+    <div class="note">「从转写自动填充」：AI 根据转写文本提取时间/地点/主持人/参会人（需已转写）。保存到 meeting.properties。</div>
   </div>
 </div>
 
@@ -390,7 +390,10 @@ async function refreshDetail() {
   ).join("") : '<div class="empty-tip">尚未生成纪要</div>';
 
   $("btnTranscribe").disabled = !d.audio.length;
-  $("btnSummarize").disabled = !d.transcripts.length;
+  $("btnTranscribe").title = d.audio.length ? "" : "请先导入音频";
+  const noT = !d.transcripts.length;
+  $("btnSummarize").disabled = noT;
+  $("btnSummarize").title = noT ? "请先转写音频，再生成纪要" : "";
 }
 
 function switchTab(tab) {
@@ -412,6 +415,33 @@ async function openPropsModal() {
     $("p_participants").value = p.participants || "";
     openModal("propsModal");
   } catch (e) { alert("读取属性失败：" + e.message); }
+}
+async function autoFillFromTranscript() {
+  if (!currentMeeting) return;
+  $("propsErr").textContent = "";
+  $("propsErr").className = "err";
+  try {
+    $("propsErr").textContent = "AI 正在从转写提取属性…";
+    const d = await api("/api/autofill", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meeting: currentMeeting, force: false }) });
+    // 轮询任务
+    await new Promise((resolve, reject) => {
+      const t = setInterval(async () => {
+        try {
+          const st = await api("/api/task/" + d.task);
+          if (st.status === "done") { clearInterval(t); resolve(st.result); }
+          else if (st.status === "error") { clearInterval(t); reject(new Error(st.error || "提取失败")); }
+          else { $("propsErr").textContent = "AI 正在从转写提取属性…（" + (st.stage || "") + "）"; }
+        } catch (e) { clearInterval(t); reject(e); }
+      }, 1000);
+    });
+    $("propsErr").textContent = "已自动填充，请查看/保存。";
+    await openPropsModal();
+    await refreshDetail();
+  } catch (e) {
+    $("propsErr").className = "err";
+    $("propsErr").textContent = "填充失败：" + e.message;
+  }
 }
 async function saveProps() {
   const props = {
@@ -512,6 +542,7 @@ function stageText(s, info) {
     case "summarizing": return `摘要 ${i.file || ""} (${i.index}/${i.total})`;
     case "searching": return `检索到 ${i.hits || 0} 条相关片段`;
     case "llm": return "DeepSeek 生成回答中…";
+    case "autofilling": return "从转写提取会议属性…";
     default: return s || "…";
   }
 }
