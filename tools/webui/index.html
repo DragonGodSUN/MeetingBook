@@ -53,6 +53,19 @@
   .task-live .live-line { margin: 2px 0; }
   .task-live .live-line .ts { color: var(--primary); margin-right: 8px; font-family: Consolas, monospace; }
 
+  /* 音频卡片内联转写状态与进度 */
+  .media-state { font-size: 12px; padding: 2px 10px; border-radius: 12px; white-space: nowrap; }
+  .media-state.idle { background: #eef1f8; color: var(--muted); }
+  .media-state.ok { background: #e8f7ee; color: var(--ok); }
+  .media-state.running { background: #eaf0fe; color: var(--primary); }
+  .media-progress { margin-top: 10px; }
+  .media-progress .progress { height: 6px; }
+  .media-live {
+    margin-top: 6px; font-size: 12px; color: var(--primary-dark); line-height: 1.6;
+    background: #f5f8ff; border-radius: 6px; padding: 6px 10px; min-height: 20px;
+  }
+  .media-live::before { content: "正在识别："; color: var(--muted); }
+
   main { display: grid; grid-template-columns: 280px 1fr 340px; gap: 16px; padding: 16px 24px; align-items: start; }
   aside, section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   aside { position: sticky; top: 72px; max-height: calc(100vh - 90px); overflow-y: auto; }
@@ -279,6 +292,7 @@
 let meetings = [];
 let currentMeeting = null;
 let activeTask = null;
+let mediaIdx = {};  // 音频文件名 -> 详情卡片序号（转写进度内联更新用）
 
 const $ = id => document.getElementById(id);
 
@@ -342,13 +356,30 @@ async function refreshDetail() {
     $("detailAgenda").style.display = "none";
   }
 
-  $("tab-audio").innerHTML = d.audio.length ? d.audio.map(a =>
-    `<div class="item-card"><div class="name"><span>${escapeHtml(a.name)}</span><span style="color:var(--muted);font-weight:400">${a.size_mb} MB${a.kind === "video" ? " · 视频" : ""}</span></div>` +
+  // 音频/视频卡片：含转写状态徽章 + 内联进度条 + 实时识别文本
+  const tDone = new Set(d.transcripts.map(t => t.name.replace(/-转写\.txt$/, "")));
+  mediaIdx = {};
+  $("tab-audio").innerHTML = d.audio.length ? d.audio.map((a, i) => {
+    mediaIdx[a.name] = i;
+    const base = a.name.replace(/\.[^.]+$/, "");
+    const done = tDone.has(base);
+    return `<div class="item-card">
+      <div class="name">
+        <span>${escapeHtml(a.name)}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="color:var(--muted);font-weight:400">${a.size_mb} MB${a.kind === "video" ? " · 视频" : ""}</span>
+          <span class="media-state ${done ? "ok" : "idle"}" id="state-${i}">${done ? "已转写 ✓" : "未转写"}</span>
+        </span>
+      </div>` +
     (a.kind === "video"
       ? `<video controls preload="metadata" src="${a.url}" style="width:100%;max-height:260px;border-radius:8px;background:#000"></video><div style="font-size:12px;color:var(--muted);margin-top:4px">视频文件：浏览器可直接预览（mkv 等部分格式可能不支持，转写不受影响）</div>`
       : `<audio controls preload="metadata" src="${a.url}"></audio>`) +
-    `</div>`
-  ).join("") : '<div class="empty-tip">无音频/视频</div>';
+    `<div class="media-progress hidden" id="prog-${i}">
+        <div class="progress"><div class="progress-fill" id="progfill-${i}"></div></div>
+        <div class="media-live" id="livetxt-${i}"></div>
+      </div>
+    </div>`;
+  }).join("") : '<div class="empty-tip">无音频/视频</div>';
 
   $("tab-transcripts").innerHTML = d.transcripts.length ? d.transcripts.map(t =>
     `<div class="item-card"><div class="name">${escapeHtml(t.name)}</div><pre>${escapeHtml(t.content)}</pre></div>`
@@ -446,12 +477,31 @@ function renderTask(d) {
       pct = Math.round(info.index / info.total * 100);
     }
     live = info.live || [];
+    updateMediaProgress(info);  // 内联更新对应音频卡片
   } else if (d.stage === "summarizing" && info.total) {
     pct = Math.round(info.index / info.total * 100);
   }
   if (d.stage === "done") pct = 100;
   if (d.status === "error") { pct = 100; text = "错误"; }
   setTask(text, pct, live);
+}
+function updateMediaProgress(info) {
+  const f = info.file;
+  if (!f || !(f in mediaIdx)) return;
+  const i = mediaIdx[f];
+  const st = $("state-" + i), pg = $("prog-" + i), fill = $("progfill-" + i), lt = $("livetxt-" + i);
+  if (!st || !pg) return;
+  const pct = info.pct != null ? info.pct : 0;
+  st.textContent = "转写中 " + pct + "%";
+  st.className = "media-state running";
+  pg.classList.remove("hidden");
+  if (fill) fill.style.width = pct + "%";
+  if (lt) {
+    const last = (info.live && info.live.length)
+      ? info.live[info.live.length - 1].replace(/^\[[^\]]*\]\s*/, "")
+      : (info.text || "正在识别…");
+    lt.textContent = last;
+  }
 }
 function stageText(s, info) {
   const i = info || {};
