@@ -69,10 +69,12 @@ python tools/transcribe.py audio.m4a --output-dir "2026/2026-08-06-产品评审/
 一站式管理会议：**导入音频 → 转写 → 摘要 → 检索提问**。
 
 ```powershell
-# 交互式主菜单（最方便，输入序号操作）
-python tools/meetingbook.py
+# 一键启动（推荐）：双击根目录的「启动会议助手.bat」，或命令行运行
+.\启动会议助手.bat            # 交互式主菜单
+.\启动会议助手.bat search "性能优化"   # 可直接带子命令参数
 
-# 子命令方式
+# 或直接调用
+python tools/meetingbook.py   # 交互式主菜单
 python tools/meetingbook.py list                                  # 列出所有会议
 python tools/meetingbook.py import 录音.m4a --meeting 产品评审    # 导入音频（自动归档到 日期-主题/audio/）
 python tools/meetingbook.py transcribe --all                      # 转写所有音频（默认只转写未转写的）
@@ -80,6 +82,8 @@ python tools/meetingbook.py summarize --all                       # 为转写生
 python tools/meetingbook.py search "性能优化"                     # 关键词检索转写/纪要
 python tools/meetingbook.py ask "上周决定了什么？"                # 检索 + LLM 问答
 ```
+
+> 启动脚本 `启动会议助手.bat` / `start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
 
 **LLM 配置**（`summarize` / `ask` 需要，用 DeepSeek API）：
 1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 API Key
