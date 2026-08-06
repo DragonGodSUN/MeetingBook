@@ -728,6 +728,51 @@ def cmd_list(args) -> int:
     return 0
 
 
+# ---------- 删除（安全删除：移入回收站 .trash，可恢复） ----------
+
+TRASH_DIR = os.path.join(MEETINGS_ROOT, ".trash")
+
+
+def trash_meeting(folder: str) -> str:
+    """把会议目录移入回收站 .trash/<会议名>-<时间戳>/，返回回收站路径。"""
+    os.makedirs(TRASH_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dst = os.path.join(TRASH_DIR, f"{os.path.basename(folder)}-{ts}")
+    shutil.move(folder, dst)
+    return dst
+
+
+def cmd_remove(args) -> int:
+    """删除会议：打印内容清单 → 输入会议名确认 → 移入回收站（可恢复）。"""
+    m = pick_meeting(args.meeting)
+    if not m:
+        return 1
+    md = parse_meeting(m)
+    print(f"{c('即将删除会议:', '33')} {md['date']} {md['topic']} ({os.path.basename(m)})")
+    has_content = False
+    for sub, label in (("audio", "音频"), ("transcript", "转写"),
+                       ("notes", "纪要"), ("attachments", "附件")):
+        d = os.path.join(m, sub)
+        files = [f for f in os.listdir(d) if f != ".gitkeep"] if os.path.isdir(d) else []
+        if files:
+            has_content = True
+            print(f"  {label}: {', '.join(files)}")
+    if not has_content:
+        warn("  该会议目录为空。")
+    try:
+        confirm = input(f"输入会议名「{md['topic']}」确认移入回收站（可恢复），直接回车取消: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        confirm = ""
+    if confirm != md["topic"]:
+        warn("已取消，未做任何修改。")
+        return 0
+    dst = trash_meeting(m)
+    ok(f"已移入回收站: {os.path.relpath(dst, ROOT)}")
+    info("如需恢复：把该目录从 .trash/ 移回 meetings/<年>/<年月>/ 即可。")
+    return 0
+
+
 # ---------- API Key 配置 ----------
 
 def cmd_config(args) -> int:
@@ -892,6 +937,9 @@ def main() -> int:
     p.add_argument("--clear", action="store_true", help="清除 .env 中的 API Key")
     p.add_argument("--path", action="store_true", help="显示 .env 文件路径")
 
+    p = sub.add_parser("remove", help="删除会议（移入回收站 .trash，可恢复）")
+    p.add_argument("meeting", help="会议名（日期/序号/显示名子串）")
+
     args = parser.parse_args()
     if not args.cmd:
         return main_menu()
@@ -900,6 +948,7 @@ def main() -> int:
         "import": cmd_import, "transcribe": cmd_transcribe,
         "summarize": cmd_summarize, "search": cmd_search,
         "ask": cmd_ask, "list": cmd_list, "config": cmd_config,
+        "remove": cmd_remove,
     }
     return handlers[args.cmd](args)
 

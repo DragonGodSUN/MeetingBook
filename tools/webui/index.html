@@ -31,6 +31,8 @@
   .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
   .btn.primary:hover { background: var(--primary-dark); color: #fff; }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.danger { color: var(--err); border-color: #f3c6c6; }
+  .btn.danger:hover { background: #fef2f2; border-color: var(--err); }
 
   #taskBar {
     background: var(--card); border-bottom: 1px solid var(--border);
@@ -189,6 +191,7 @@
         <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
         <button class="btn" onclick="openPropsModal()">编辑属性</button>
         <button class="btn" onclick="refreshDetail()">刷新</button>
+        <button class="btn danger" onclick="confirmDeleteMeeting()">删除会议</button>
       </div>
       <div class="tabs">
         <button class="tab active" data-tab="audio" onclick="switchTab('audio')">音频</button>
@@ -473,6 +476,28 @@ function setTask(text, pct, live) {
   }
 }
 function hideTask() { $("taskBar").classList.add("hidden"); $("taskLive").classList.add("hidden"); }
+
+/* ---------- 删除会议（移入回收站 .trash，可恢复） ---------- */
+async function confirmDeleteMeeting() {
+  if (!currentMeeting) return;
+  let title = currentMeeting;
+  try {
+    const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
+    title = d.title || currentMeeting;
+  } catch (e) {}
+  if (!confirm(`确定删除会议「${title}」？\n\n会议将移入回收站（.trash/），不会永久删除，可手动恢复。`)) return;
+  if (!confirm(`再次确认：删除「${title}」？`)) return;
+  try {
+    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/remove",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }) });
+    currentMeeting = null;
+    $("detailEmpty").style.display = "block";
+    $("detailContent").style.display = "none";
+    await loadMeetings();
+    alert("已移入回收站（.trash/）。如需恢复请将目录移回原位置。");
+  } catch (e) { alert("删除失败：" + e.message); }
+}
 
 /* ---------- 检索 / 问答 ---------- */
 async function doQA() {

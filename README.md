@@ -125,6 +125,18 @@ python tools/meetingbook.py config --clear                        # 清除 .env 
 
 > 启动脚本 `scripts/启动会议助手.bat` / `scripts/start_meetingbook.ps1` 会自动检查依赖、应用国内网络环境变量，缺包时自动安装。
 
+## 删除会议（安全删除）
+
+删除会议**不会永久删除**，而是移入回收站 `meetings/.trash/`（可恢复）：
+
+```powershell
+python tools/meetingbook.py remove 2026-08-06-001   # 打印内容清单 → 输入会议名确认 → 入回收站
+```
+
+- Web 界面：详情页「删除会议」按钮（两次确认后执行）
+- 恢复方法：把目录从 `.trash/` 移回 `meetings/<年>/<年月>/` 即可
+- 彻底清理回收站：手动删除 `meetings/.trash/` 目录
+
 **API Key 管理**（`summarize` / `ask` 需要，用 DeepSeek API）：
 1. 注册 [DeepSeek 开放平台](https://platform.deepseek.com) 获取 API Key
 2. 保存 key 二选一：

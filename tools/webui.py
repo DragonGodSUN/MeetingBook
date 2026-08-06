@@ -237,6 +237,19 @@ def api_meeting_rename(name):
     return jsonify({"ok": True, "name": new_name})
 
 
+@app.post("/api/meeting/<name>/remove")
+def api_meeting_remove(name):
+    """删除会议：移入回收站 .trash/（可恢复）。需 confirm=true。"""
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({"error": "缺少确认标记 confirm=true"}), 400
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    dst = mb.trash_meeting(m)
+    return jsonify({"ok": True, "trash": os.path.relpath(dst, ROOT).replace("\\", "/")})
+
+
 @app.post("/api/meeting/<name>/props")
 def api_meeting_props(name):
     """批量更新会议通用属性（写入 meeting.properties）。"""
