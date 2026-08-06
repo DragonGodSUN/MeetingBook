@@ -170,6 +170,7 @@
       <div class="actions">
         <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
         <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
+        <button class="btn" onclick="renameMeeting()">改名</button>
         <button class="btn" onclick="refreshDetail()">刷新</button>
       </div>
       <div class="tabs">
@@ -252,7 +253,7 @@ async function loadMeetings() {
   meetings.forEach(m => {
     const li = document.createElement("li");
     li.dataset.name = m.name;
-    li.innerHTML = `<div class="m-date">${m.date}</div><div class="m-topic">${escapeHtml(m.topic)}</div>
+    li.innerHTML = `<div class="m-date">${m.date}</div><div class="m-topic">${escapeHtml(m.title)}</div>
       <div class="m-counts">音频 ${m.audio} · 转写 ${m.transcripts} · 纪要 ${m.notes}</div>`;
     li.onclick = () => selectMeeting(m.name, li);
     ul.appendChild(li);
@@ -275,7 +276,7 @@ async function refreshDetail() {
   const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
   $("detailEmpty").style.display = "none";
   $("detailContent").style.display = "block";
-  $("detailTitle").textContent = d.date + " · " + d.topic;
+  $("detailTitle").textContent = d.date + " · " + d.title;
 
   // 议程（agenda.md）
   if (d.agenda && d.agenda.trim()) {
@@ -304,6 +305,25 @@ async function refreshDetail() {
 function switchTab(tab) {
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
+}
+
+/* ---------- 会议改名（写入属性文件，不改文件夹名） ---------- */
+async function renameMeeting() {
+  if (!currentMeeting) return;
+  let cur = "";
+  try {
+    const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
+    cur = d.title || "";
+  } catch (e) {}
+  const newName = prompt("修改会议名称：", cur);
+  if (newName === null || !newName.trim()) return;
+  try {
+    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/rename",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }) });
+    await loadMeetings();
+    await refreshDetail();
+  } catch (e) { alert("改名失败：" + e.message); }
 }
 
 /* ---------- 任务（转写/摘要/问答） ---------- */

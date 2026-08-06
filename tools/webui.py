@@ -185,8 +185,8 @@ def meeting_detail(m: str) -> dict:
                 else:
                     item["content"] = _read_text(os.path.join(d, f))
                 out.append(item)
-    return {"name": md["name"], "date": md["date"], "topic": md["topic"],
-            "agenda": agenda,
+    return {"name": md["name"], "date": md["date"], "seq": md["seq"],
+            "title": md["topic"], "agenda": agenda,
             "audio": audio, "transcripts": transcripts, "notes": notes}
 
 
@@ -203,7 +203,8 @@ def api_meetings():
     items = []
     for m in mb.find_meetings():
         d = meeting_detail(m)
-        items.append({"name": d["name"], "date": d["date"], "topic": d["topic"],
+        items.append({"name": d["name"], "date": d["date"], "seq": d["seq"],
+                      "title": d["title"],
                       "audio": len(d["audio"]), "transcripts": len(d["transcripts"]),
                       "notes": len(d["notes"])})
     return jsonify(items)
@@ -215,6 +216,20 @@ def api_meeting(name):
     if not m:
         return jsonify({"error": "会议不存在"}), 404
     return jsonify(meeting_detail(m))
+
+
+@app.post("/api/meeting/<name>/rename")
+def api_meeting_rename(name):
+    """修改会议显示名称（写入 meeting.properties，不改文件夹名）。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    data = request.get_json(force=True)
+    new_name = (data.get("name") or "").strip()
+    if not new_name:
+        return jsonify({"error": "名称不能为空"}), 400
+    mb.write_meeting_name(m, new_name)
+    return jsonify({"ok": True, "name": new_name})
 
 
 def _sanitize_filename(name: str) -> str:

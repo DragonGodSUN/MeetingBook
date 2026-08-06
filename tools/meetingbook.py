@@ -147,16 +147,67 @@ def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int =
 
 # ---------- 会议目录 ----------
 
-MEETING_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$")
+# 会议文件夹名：YYYY-MM-DD-NNN（NNN 当天从 001 递增）
+MEETING_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{3})$")
+
+# 会议属性文件：存显示名称等元数据（名称与文件夹名解耦，可在 Web 随意修改）
+MEETING_PROPS_FILE = "meeting.properties"
 
 # 会议数据统一根目录：meetings/年/年月/会议
 MEETINGS_ROOT = os.path.join(ROOT, "meetings")
 
 
+def read_meeting_name(folder: str) -> str:
+    """从属性文件读取会议显示名称；无则返回空串。"""
+    p = os.path.join(folder, MEETING_PROPS_FILE)
+    if os.path.isfile(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("name="):
+                        return line[5:].strip()
+        except OSError:
+            pass
+    return ""
+
+
+def write_meeting_name(folder: str, name: str) -> str:
+    """写/更新会议显示名称到属性文件，返回属性文件路径。"""
+    name = name.strip()
+    p = os.path.join(folder, MEETING_PROPS_FILE)
+    lines = []
+    if os.path.isfile(p):
+        with open(p, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("name="):
+            lines[i] = f"name={name}"
+            found = True
+            break
+    if not found:
+        lines.append(f"name={name}")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return p
+
+
+def _next_seq(ym_dir: str, d: str) -> int:
+    """当天已有会议的最大序号 + 1（从 001 开始）。"""
+    seq = 1
+    if os.path.isdir(ym_dir):
+        for n in os.listdir(ym_dir):
+            m = re.match(rf"^{re.escape(d)}-(\d{{3}})$", n)
+            if m:
+                seq = max(seq, int(m.group(1)) + 1)
+    return seq
+
+
 def find_meetings() -> list[str]:
     """返回所有会议目录绝对路径，按日期倒序。
 
-    结构：<ROOT>/meetings/<年>/<年月>/<YYYY-MM-DD-主题>/
+    结构：<ROOT>/meetings/<年>/<年月>/<YYYY-MM-DD-NNN>/
     """
     meetings = []
     if not os.path.isdir(MEETINGS_ROOT):
@@ -176,14 +227,15 @@ def find_meetings() -> list[str]:
 
 
 def parse_meeting(path: str) -> dict:
-    """从目录名解析会议信息。"""
+    """从目录名解析会议信息。topic 为显示名称（属性文件），缺省“会议 NNN”。"""
     name = os.path.basename(path)
     m = MEETING_RE.match(name)
-    date_str = topic = ""
+    date_str, seq = "", 0
     if m:
         date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-        topic = m.group(4)
-    return {"path": path, "name": name, "date": date_str, "topic": topic}
+        seq = int(m.group(4))
+    display = read_meeting_name(path) or (f"会议 {seq:03d}" if seq else name)
+    return {"path": path, "name": name, "date": date_str, "seq": seq, "topic": display}
 
 
 def pick_meeting(keyword: str | None) -> str | None:
@@ -195,7 +247,8 @@ def pick_meeting(keyword: str | None) -> str | None:
     if not keyword:
         return None
     kw = keyword.strip()
-    hits = [p for p in meetings if kw in os.path.basename(p)]
+    hits = [p for p in meetings
+            if kw in os.path.basename(p) or kw in parse_meeting(p)["topic"]]
     if len(hits) == 1:
         return hits[0]
     if len(hits) > 1:
@@ -217,7 +270,8 @@ def meeting_choose_interactive(prompt: str = "选择会议") -> str | None:
         return None
     print(f"{c(prompt + ':', '36')}")
     for i, p in enumerate(meetings, 1):
-        print(f"  [{i}] {os.path.basename(p)}")
+        md = parse_meeting(p)
+        print(f"  [{i}] {md['date']} {md['topic']}  ({os.path.basename(p)})")
     try:
         n = int(input(f"输入序号 (1-{len(meetings)}, 0 取消): ").strip())
     except (ValueError, EOFError):
@@ -276,14 +330,18 @@ def cmd_import(args) -> int:
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
         err(f"日期格式应为 YYYY-MM-DD，收到: {d}")
         return 1
-    topic = args.meeting or os.path.splitext(os.path.basename(src))[0]
-    topic = topic.strip().strip("-")
 
+    # 文件夹名 = 日期-序号（当天从 001 递增）；显示名称存属性文件
+    display = (args.meeting or "").strip()
     year, month = d[:4], d[:7]
-    folder = os.path.join(MEETINGS_ROOT, year, month, f"{d}-{topic}")
+    ym_dir = os.path.join(MEETINGS_ROOT, year, month)
+    os.makedirs(ym_dir, exist_ok=True)
+    seq = _next_seq(ym_dir, d)
+    folder = os.path.join(ym_dir, f"{d}-{seq:03d}")
     audio_dir = os.path.join(folder, "audio")
     ensure_meeting_structure(folder)  # 统一四目录 + agenda.md
     os.makedirs(audio_dir, exist_ok=True)
+    write_meeting_name(folder, display or f"会议 {seq:03d}")  # 属性文件存显示名称
 
     # 重名处理：加序号
     dst = os.path.join(audio_dir, os.path.basename(src))
@@ -392,7 +450,7 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
         warn(f"转写内容过短，跳过: {os.path.basename(txt_path)}")
         return ""
 
-    user = (f"会议名称: {meeting['name']}\n"
+    user = (f"会议名称: {meeting['topic']}\n"
             f"会议日期: {meeting['date']}\n\n"
             "以下是语音转写文本，请生成会议纪要（包含：会议概况、讨论要点、决议/结论、待办事项表）：\n\n"
             f"{text}")
@@ -539,7 +597,7 @@ def build_index(meeting_filter: str | None = None) -> BM25Index:
                 for si, seg in enumerate(_split_segments(text)):
                     idx.add_docs([{
                         "id": f"{m}|{sub}|{f}|{si}",
-                        "meeting": md["name"],
+                        "meeting": md["topic"],
                         "file": f,
                         "kind": kind,
                         "text": seg,

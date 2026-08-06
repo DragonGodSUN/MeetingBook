@@ -20,22 +20,23 @@ MeetingBook/
     └── <年>/                # 如 2026
         └── <年-月>/         # 如 2026-08
             └── <YYYY-MM-DD>-<会议主题>/   # 一次会议一个文件夹（导入时自动创建）
+                ├── meeting.properties        # 会议属性（显示名称等，Web 可改）
                 ├── agenda.md                  # 议程模板（自动生成，可编辑）
                 ├── audio/                     # 录音文件（git 已忽略，仅本地）
                 ├── transcript/                # 语音转写文本
                 ├── notes/                     # 纪要 / 笔记（Markdown）
-                └── attachments/               # 附件（演示文稿、图片、文档等）
+                └── attachments/               # 附件（演示文稿、图片、文档等)
 ```
 
 ## 命名约定
 
-- **会议文件夹**：`YYYY-MM-DD-主题`，如 `2026-08-06-产品评审`
+- **会议文件夹**：`YYYY-MM-DD-序号`（序号当天从 001 递增），如 `2026-08-06-001`
+- **会议名称**：显示名存 `meeting.properties`（`name=产品评审`），文件夹名不含名称，可在 Web 界面随时改名
 - **转写文件**：`transcript/<音频名>-转写.txt`
 - **纪要文件**：`notes/<音频名>-纪要.md`（由转写自动生成时自动去掉冗余的“-转写”）
-- **音频**：放入 `audio/`，如 `2026-08-06-产品评审-录音.m4a`
-- 同一主题一天多场会议可加后缀 `-1`、`-2`
+- **音频**：放入 `audio/`，如 `产品评审会录音.m4a`
 
-> 每个会议目录固定四子目录（audio / transcript / notes / attachments）+ agenda.md，
+> 每个会议目录固定四子目录（audio / transcript / notes / attachments）+ agenda.md + meeting.properties，
 > 导入音频或转写/摘要时会自动补齐，无需手动创建。
 
 ## 使用说明
