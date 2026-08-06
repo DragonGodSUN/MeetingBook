@@ -16,13 +16,15 @@ MeetingBook/
 │   ├── 关闭可视化界面.bat
 │   ├── start_meetingbook.ps1
 │   └── stop_webui.ps1
-└── <年份>/                  # 会议数据
-    └── <YYYY-MM-DD>-<会议主题>/        # 一次会议一个文件夹（导入时自动创建）
-        ├── agenda.md                  # 议程模板（自动生成，可编辑）
-        ├── audio/                     # 录音文件（git 已忽略，仅本地）
-        ├── transcript/                # 语音转写文本
-        ├── notes/                     # 纪要 / 笔记（Markdown）
-        └── attachments/               # 附件（演示文稿、图片、文档等）
+└── meetings/                # 会议数据统一根目录
+    └── <年>/                # 如 2026
+        └── <年-月>/         # 如 2026-08
+            └── <YYYY-MM-DD>-<会议主题>/   # 一次会议一个文件夹（导入时自动创建）
+                ├── agenda.md                  # 议程模板（自动生成，可编辑）
+                ├── audio/                     # 录音文件（git 已忽略，仅本地）
+                ├── transcript/                # 语音转写文本
+                ├── notes/                     # 纪要 / 笔记（Markdown）
+                └── attachments/               # 附件（演示文稿、图片、文档等）
 ```
 
 ## 命名约定
@@ -49,13 +51,13 @@ MeetingBook/
 
 ```powershell
 # 基本用法（默认 medium 模型，自动检测语言）
-python tools/transcribe.py "2026/2026-08-06-产品评审/audio/录音.m4a"
+python tools/transcribe.py "meetings/2026/2026-08/2026-08-06-产品评审/audio/录音.m4a"
 
 # 指定中文与更准的模型
 python tools/transcribe.py audio.m4a --model large-v3 --language zh
 
 # 指定输出目录
-python tools/transcribe.py audio.m4a --output-dir "2026/2026-08-06-产品评审/transcript"
+python tools/transcribe.py audio.m4a --output-dir "meetings/2026/2026-08/2026-08-06-产品评审/transcript"
 ```
 
 **环境依赖**（首次已配置好）：

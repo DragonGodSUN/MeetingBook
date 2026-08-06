@@ -149,17 +149,29 @@ def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int =
 
 MEETING_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$")
 
+# 会议数据统一根目录：meetings/年/年月/会议
+MEETINGS_ROOT = os.path.join(ROOT, "meetings")
+
 
 def find_meetings() -> list[str]:
-    """返回所有会议目录绝对路径，按日期倒序。"""
+    """返回所有会议目录绝对路径，按日期倒序。
+
+    结构：<ROOT>/meetings/<年>/<年月>/<YYYY-MM-DD-主题>/
+    """
     meetings = []
-    years = [d for d in os.listdir(ROOT)
-             if os.path.isdir(os.path.join(ROOT, d)) and re.fullmatch(r"\d{4}", d)]
-    for y in sorted(years, reverse=True):
-        ydir = os.path.join(ROOT, y)
-        for name in sorted(os.listdir(ydir), reverse=True):
-            if os.path.isdir(os.path.join(ydir, name)) and MEETING_RE.match(name):
-                meetings.append(os.path.join(ydir, name))
+    if not os.path.isdir(MEETINGS_ROOT):
+        return meetings
+    for y in sorted(os.listdir(MEETINGS_ROOT), reverse=True):
+        ydir = os.path.join(MEETINGS_ROOT, y)
+        if not (os.path.isdir(ydir) and re.fullmatch(r"\d{4}", y)):
+            continue
+        for ym in sorted(os.listdir(ydir), reverse=True):
+            ym_dir = os.path.join(ydir, ym)
+            if not (os.path.isdir(ym_dir) and re.fullmatch(r"\d{4}-\d{2}", ym)):
+                continue
+            for name in sorted(os.listdir(ym_dir), reverse=True):
+                if os.path.isdir(os.path.join(ym_dir, name)) and MEETING_RE.match(name):
+                    meetings.append(os.path.join(ym_dir, name))
     return meetings
 
 
@@ -267,8 +279,8 @@ def cmd_import(args) -> int:
     topic = args.meeting or os.path.splitext(os.path.basename(src))[0]
     topic = topic.strip().strip("-")
 
-    year = d[:4]
-    folder = os.path.join(ROOT, year, f"{d}-{topic}")
+    year, month = d[:4], d[:7]
+    folder = os.path.join(MEETINGS_ROOT, year, month, f"{d}-{topic}")
     audio_dir = os.path.join(folder, "audio")
     ensure_meeting_structure(folder)  # 统一四目录 + agenda.md
     os.makedirs(audio_dir, exist_ok=True)
