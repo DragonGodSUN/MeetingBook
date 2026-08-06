@@ -154,10 +154,57 @@ MEETING_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{3})$")
 MEETING_PROPS_FILE = "meeting.properties"
 
 # 会议数据统一根目录：meetings/年/年月/会议
-# 可通过 .env 或环境变量 MEETINGS_ROOT 指向项目外目录（支持中文路径）
+# 可通过 .env 或环境变量 MEETINGS_ROOT 指向项目外目录（支持中文路径/自定义目录名/相对路径）
 load_env()  # 确保 .env 中 MEETINGS_ROOT 等变量可用
 _meetings_env = os.environ.get("MEETINGS_ROOT", "").strip()
-MEETINGS_ROOT = os.path.abspath(_meetings_env) if _meetings_env else os.path.join(ROOT, "meetings")
+if _meetings_env:
+    _meetings_path = _meetings_env if os.path.isabs(_meetings_env) else os.path.join(ROOT, _meetings_env)
+    MEETINGS_ROOT = os.path.abspath(_meetings_path)
+else:
+    MEETINGS_ROOT = os.path.join(ROOT, "meetings")
+
+
+def save_env(key: str, value: str) -> str:
+    """写入/更新项目根 .env（用于持久化 MEETINGS_ROOT 等配置），返回 .env 路径。"""
+    key, value = key.strip(), str(value).strip()
+    env_path = env_file_path()
+    lines = []
+    if os.path.isfile(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.partition("=")[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            found = True
+            break
+    if not found:
+        lines.append(f"{key}={value}")
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return env_path
+
+
+def set_meetings_root(path: str) -> str:
+    """运行时切换会议数据目录：校验可创建/可写，更新模块全局，返回新路径（绝对）。"""
+    p = (path or "").strip().strip('"').strip("'")
+    if not p:
+        raise ValueError("数据目录路径不能为空")
+    if not os.path.isabs(p):
+        p = os.path.join(ROOT, p)  # 相对路径以项目根为基准（支持自定义目录名，如“会议数据”）
+    p = os.path.abspath(p)
+    try:
+        os.makedirs(p, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"无法创建目录: {e}") from e
+    if not os.access(p, os.W_OK):
+        raise ValueError(f"目录不可写: {p}")
+    global MEETINGS_ROOT
+    MEETINGS_ROOT = p
+    return p
 
 
 def safe_join(root: str, *parts: str) -> str:
@@ -753,14 +800,16 @@ def cmd_list(args) -> int:
 
 # ---------- 删除（安全删除：移入回收站 .trash，可恢复） ----------
 
-TRASH_DIR = os.path.join(MEETINGS_ROOT, ".trash")
+def trash_dir() -> str:
+    """回收站目录（跟随当前数据目录）。"""
+    return os.path.join(MEETINGS_ROOT, ".trash")
 
 
 def trash_meeting(folder: str) -> str:
     """把会议目录移入回收站 .trash/<会议名>-<时间戳>/，返回回收站路径。"""
-    os.makedirs(TRASH_DIR, exist_ok=True)
+    os.makedirs(trash_dir(), exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dst = os.path.join(TRASH_DIR, f"{os.path.basename(folder)}-{ts}")
+    dst = os.path.join(trash_dir(), f"{os.path.basename(folder)}-{ts}")
     shutil.move(folder, dst)
     return dst
 

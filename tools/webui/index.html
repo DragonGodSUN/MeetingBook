@@ -158,7 +158,7 @@
   <h1>📖 MeetingBook 会议助手</h1>
   <div class="header-right">
     <span id="keyBadge" class="badge warn">Key 未配置</span>
-    <button class="btn" onclick="openKeyModal()">API Key 配置</button>
+    <button class="btn" onclick="openKeyModal()">⚙️ 设置</button>
   </div>
 </header>
 
@@ -256,14 +256,21 @@
   <div class="modal">
     <h3>DeepSeek API Key</h3>
     <div class="row"><label>当前状态</label><div id="keyStatus" style="font-size:14px">…</div></div>
-    <div class="row"><label>新的 API Key（sk-…）</label><input type="password" id="keyInput" placeholder="粘贴 Key"></div>
+    <div class="row"><label>DeepSeek API Key（sk-…）</label><input type="password" id="keyInput" placeholder="粘贴 Key"></div>
     <div class="err" id="keyErr"></div>
     <div class="row-btns">
-      <button class="btn" onclick="clearKey()">清除</button>
-      <button class="btn" onclick="closeModal('keyModal')">关闭</button>
-      <button class="btn primary" onclick="saveKey()">保存</button>
+      <button class="btn" onclick="clearKey()">清除 Key</button>
+      <button class="btn primary" onclick="saveKey()">保存 Key</button>
     </div>
-    <div class="note">Key 保存到项目根目录 .env（已被 git 忽略，不入库）。summarize / 问答需要 Key。</div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+    <div class="row"><label>会议数据目录（可放项目外/自定义名称，支持中文与相对路径）</label><input type="text" id="dirInput" placeholder="如 D:\会议数据 或 会议数据"></div>
+    <div class="row"><label>当前目录</label><div id="dirStatus" style="font-size:12px;color:var(--muted);word-break:break-all">…</div></div>
+    <div class="err" id="dirErr"></div>
+    <div class="row-btns">
+      <button class="btn primary" onclick="saveDir()">保存目录</button>
+      <button class="btn" onclick="closeModal('keyModal')">关闭</button>
+    </div>
+    <div class="note">Key 存 `.env` 不入库；切换数据目录后立即生效并持久化，会议列表会刷新。</div>
   </div>
 </div>
 
@@ -562,10 +569,28 @@ async function openKeyModal() {
   openModal("keyModal");
   $("keyErr").textContent = "";
   $("keyInput").value = "";
+  $("dirErr").textContent = "";
+  $("dirInput").value = "";
   try {
     const d = await api("/api/config");
     $("keyStatus").textContent = d.configured ? "已配置: " + d.masked + "（模型 " + d.model + "）" : "未配置";
+    $("dirStatus").textContent = d.data_dir || "…";
   } catch (e) { $("keyStatus").textContent = "查询失败"; }
+}
+async function saveDir() {
+  const path = $("dirInput").value.trim();
+  if (!path) { $("dirErr").textContent = "请输入目录路径"; return; }
+  try {
+    const d = await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_dir", path }) });
+    $("dirStatus").textContent = d.data_dir;
+    $("dirErr").textContent = "";
+    currentMeeting = null;
+    $("detailEmpty").style.display = "block";
+    $("detailContent").style.display = "none";
+    await loadMeetings();
+    alert("数据目录已切换：" + d.data_dir);
+  } catch (e) { $("dirErr").textContent = e.message; }
 }
 async function saveKey() {
   const key = $("keyInput").value.trim();

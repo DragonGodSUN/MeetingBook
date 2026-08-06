@@ -364,6 +364,7 @@ def api_config():
         "model": mb.DEEPSEEK_MODEL,
         "base_url": mb.DEEPSEEK_BASE_URL,
         "env_file": os.path.basename(mb.env_file_path()),
+        "data_dir": mb.MEETINGS_ROOT,
     })
 
 
@@ -382,6 +383,14 @@ def api_config_set():
         mb.clear_api_key()
         os.environ.pop("DEEPSEEK_API_KEY", None)
         return jsonify({"ok": True})
+    if action == "set_dir":
+        path = data.get("path") or ""
+        try:
+            new_dir = mb.set_meetings_root(path)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        mb.save_env("MEETINGS_ROOT", new_dir)  # 持久化到 .env，重启后仍生效
+        return jsonify({"ok": True, "data_dir": new_dir})
     return jsonify({"error": "未知操作"}), 400
 
 
