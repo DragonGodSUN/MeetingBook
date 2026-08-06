@@ -81,12 +81,19 @@ def main() -> int:
 
 def transcribe_audio(audio: str, model_size: str = "medium", language: str | None = None,
                      output_dir: str | None = None, compute_type: str = "auto",
-                     vad: bool = True) -> str:
+                     vad: bool = True, progress_cb=None) -> str:
     """转写单个音频文件，返回输出 txt 路径。
 
     输出默认写到 <音频所在目录>/../transcript/<音频名>-转写.txt。
     模型按 (大小, 设备, 精度) 缓存，连续转写多个文件只加载一次。
+
+    progress_cb(stage, info)：可选进度回调，stage 取值：
+        "model_start" / "model_ready" / "transcribing"(n=段数) / "done"(out_path)
     """
+    if progress_cb is None:
+        def progress_cb(stage, info):  # noqa: E306
+            pass
+
     audio = os.path.abspath(audio)
     if not os.path.isfile(audio):
         raise FileNotFoundError(f"找不到音频文件 {audio}")
@@ -108,7 +115,9 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
     t0 = time.time()
     device, compute_type = pick_device(compute_type)
     print(f"      设备: {device}, 精度: {compute_type}")
+    progress_cb("model_start", {"model": model_size})
     model = _get_model(model_size, device, compute_type)
+    progress_cb("model_ready", {"device": device, "compute_type": compute_type})
     print(f"      模型就绪 ({time.time()-t0:.1f}s)")
 
     # 转写
@@ -135,7 +144,9 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
             n_seg += 1
             if n_seg % 20 == 0:
                 print(f"      已转写 {n_seg} 段 ...")
+            progress_cb("transcribing", {"n": n_seg})
 
+    progress_cb("done", {"out_path": out_path})
     print(f"完成: {n_seg} 段，耗时 {time.time()-t0:.1f}s")
     return out_path
 

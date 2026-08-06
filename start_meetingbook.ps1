@@ -72,7 +72,12 @@ if (-not $env:DEEPSEEK_API_KEY) {
 # --- launch ---
 Write-Host "[2/2] Starting MeetingBook ..." -ForegroundColor Yellow
 Write-Host ""
-if ($Args2Pass.Count -gt 0) {
+if ($Args2Pass.Count -gt 0 -and $Args2Pass[0] -eq "webui") {
+    # Web 可视化界面模式：透传剩余参数给 webui.py
+    $WebArgs = @()
+    if ($Args2Pass.Count -gt 1) { $WebArgs = $Args2Pass[1..($Args2Pass.Count - 1)] }
+    & python "tools\webui.py" @WebArgs
+} elseif ($Args2Pass.Count -gt 0) {
     & python "tools\meetingbook.py" @Args2Pass
 } else {
     & python "tools\meetingbook.py"

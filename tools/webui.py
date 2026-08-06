@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""MeetingBook Web 界面 — 本地可视化操作界面（Flask）
+
+用法:
+    python tools/webui.py                # 启动服务并自动打开浏览器
+    python tools/webui.py --no-browser   # 不自动打开浏览器
+    python tools/webui.py --port 8080    # 指定端口（默认 8765）
+
+依赖: pip install flask
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import uuid
+import webbrowser
+from datetime import date
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+WEBUI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui")
+
+from flask import Flask, abort, jsonify, request, send_from_directory  # noqa: E402
+
+from tools import meetingbook as mb  # noqa: E402
+from tools.transcribe import transcribe_audio  # noqa: E402
+
+app = Flask(__name__, static_folder=None)
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 上传上限 4GB
+
+# ---------------- 后台任务 ----------------
+
+TASKS: dict[str, dict] = {}
+_TLOCK = threading.Lock()
+
+
+def start_task(name: str, fn, *args, **kwargs) -> str:
+    """后台执行 fn(cb, *args, **kwargs)，cb(stage, info) 上报进度。返回 task_id。"""
+    tid = uuid.uuid4().hex[:12]
+    with _TLOCK:
+        TASKS[tid] = {"id": tid, "name": name, "status": "running", "stage": "",
+                      "info": None, "result": None, "error": None,
+                      "created": time.strftime("%H:%M:%S")}
+
+    def worker():
+        try:
+            def cb(stage, info=None):
+                with _TLOCK:
+                    TASKS[tid]["stage"] = stage
+                    TASKS[tid]["info"] = info
+            result = fn(cb, *args, **kwargs)
+            with _TLOCK:
+                TASKS[tid]["status"] = "done"
+                TASKS[tid]["result"] = result
+        except Exception as e:  # noqa: BLE001
+            with _TLOCK:
+                TASKS[tid]["status"] = "error"
+                TASKS[tid]["error"] = str(e)
+
+    threading.Thread(target=worker, daemon=True).start()
+    return tid
+
+
+def task_transcribe(cb, meeting, model, language, force):
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    audio_dir, t_dir = os.path.join(m, "audio"), os.path.join(m, "transcript")
+    os.makedirs(t_dir, exist_ok=True)
+    files = sorted(f for f in os.listdir(audio_dir)
+                   if os.path.splitext(f)[1].lower() in mb.AUDIO_EXTS)
+    todo = [f for f in files
+            if force or not os.path.exists(os.path.join(t_dir, f"{os.path.splitext(f)[0]}-转写.txt"))]
+    if not todo:
+        return {"done": [], "skipped": len(files), "already": True}
+    done, failed = [], []
+    mname = os.path.basename(m)
+    for i, f in enumerate(todo):
+        cb("transcribing", {"meeting": mname, "file": f, "index": i + 1, "total": len(todo)})
+
+        def prog(s, info, _f=f):
+            cb(s, {**info, "meeting": mname, "file": _f})
+        try:
+            out = transcribe_audio(os.path.join(audio_dir, f), model_size=model,
+                                   language=language, output_dir=t_dir, progress_cb=prog)
+            done.append(os.path.basename(out))
+        except Exception as e:  # noqa: BLE001
+            failed.append({"file": f, "error": str(e)})
+    return {"done": done, "failed": failed, "skipped": len(files) - len(todo)}
+
+
+def task_summarize(cb, meeting, force):
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    t_dir = os.path.join(m, "transcript")
+    if not os.path.isdir(t_dir):
+        return {"done": [], "already": True}
+    md = mb.parse_meeting(m)
+    files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
+    todo = [f for f in files
+            if force or not os.path.exists(os.path.join(m, "notes", f"{os.path.splitext(f)[0]}-纪要.md"))]
+    if not todo:
+        return {"done": [], "already": True}
+    done, failed = [], []
+    for i, f in enumerate(todo):
+        cb("summarizing", {"meeting": md["name"], "file": f, "index": i + 1, "total": len(todo)})
+        try:
+            out = mb.summarize_transcript(os.path.join(t_dir, f), md, save=True)
+            done.append(os.path.basename(out))
+        except Exception as e:  # noqa: BLE001
+            failed.append({"file": f, "error": str(e)})
+    return {"done": done, "failed": failed, "already": False}
+
+
+def task_ask(cb, question, meeting, top_k):
+    idx = mb.build_index(meeting)
+    if not idx.docs:
+        raise RuntimeError("仓库中没有可检索的转写/纪要文本，请先转写。")
+    hits = idx.search(question, top_k=top_k)
+    cb("searching", {"hits": len(hits)})
+    if not hits:
+        return {"answer": "未检索到相关内容，无法回答。可换个问法或先转写更多会议。", "hits": []}
+    context = "\n\n".join(f"【来源: {h['meeting']} / {h['file']}】\n{h['text']}" for h in hits)
+    system = ("你是会议档案助手。根据用户提供的会议材料（含来源标注）回答问题。"
+              "只能基于材料内容回答；材料不足时明确说明“材料中没有提到”。"
+              "回答用中文，简洁有条理，必要时引用来源会议。")
+    cb("llm", {})
+    answer = mb.llm_chat(system, f"问题: {question}\n\n相关会议材料:\n{context}",
+                         temperature=0.2, max_tokens=1024)
+    return {"answer": answer,
+            "hits": [{"meeting": h["meeting"], "file": h["file"], "kind": h["kind"],
+                      "score": round(h["score"], 2), "text": h["text"]} for h in hits]}
+
+
+# ---------------- 页面与静态文件 ----------------
+
+@app.get("/")
+def index():
+    return send_from_directory(WEBUI_DIR, "index.html")
+
+
+@app.get("/files/<path:filepath>")
+def serve_file(filepath):
+    """服务仓库内文件（用于音频播放），限制在项目根目录内。"""
+    full = os.path.realpath(os.path.join(ROOT, filepath))
+    root_real = os.path.realpath(ROOT)
+    if full != root_real and not full.startswith(root_real + os.sep):
+        abort(404)
+    if not os.path.isfile(full):
+        abort(404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full))
+
+
+# ---------------- API ----------------
+
+def meeting_detail(m: str) -> dict:
+    md = mb.parse_meeting(m)
+    audio, transcripts, notes = [], [], []
+    for sub, out in (("audio", audio), ("transcript", transcripts), ("notes", notes)):
+        d = os.path.join(m, sub)
+        if os.path.isdir(d):
+            for f in sorted(os.listdir(d)):
+                if f == ".gitkeep":
+                    continue
+                rel = os.path.relpath(os.path.join(d, f), ROOT).replace("\\", "/")
+                item = {"name": f, "path": rel}
+                if sub == "audio":
+                    item["url"] = f"/files/{rel}"
+                    item["size_mb"] = round(os.path.getsize(os.path.join(d, f)) / 1048576, 1)
+                elif sub == "transcript":
+                    item["content"] = _read_text(os.path.join(d, f))
+                else:
+                    item["content"] = _read_text(os.path.join(d, f))
+                out.append(item)
+    return {"name": md["name"], "date": md["date"], "topic": md["topic"],
+            "audio": audio, "transcripts": transcripts, "notes": notes}
+
+
+def _read_text(p: str) -> str:
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+@app.get("/api/meetings")
+def api_meetings():
+    items = []
+    for m in mb.find_meetings():
+        d = meeting_detail(m)
+        items.append({"name": d["name"], "date": d["date"], "topic": d["topic"],
+                      "audio": len(d["audio"]), "transcripts": len(d["transcripts"]),
+                      "notes": len(d["notes"])})
+    return jsonify(items)
+
+
+@app.get("/api/meeting/<name>")
+def api_meeting(name):
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    return jsonify(meeting_detail(m))
+
+
+def _sanitize_filename(name: str) -> str:
+    name = os.path.basename(name).strip()
+    name = re.sub(r'[\\/:*?"<>|\r\n]', "_", name)
+    return name or "upload"
+
+
+@app.post("/api/import")
+def api_import():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "未选择文件"}), 400
+    meeting = (request.form.get("meeting") or "").strip() or None
+    d = (request.form.get("date") or "").strip() or None
+    tmpdir = tempfile.mkdtemp(prefix="mb_up_")
+    tmp = os.path.join(tmpdir, _sanitize_filename(f.filename))
+    try:
+        f.save(tmp)
+        mb.cmd_import(mb.SimpleNamespace(audio=tmp, meeting=meeting, date=d, move=False))
+    except SystemExit as e:
+        return jsonify({"error": str(e) or "导入失败"}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e)}), 500
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/transcribe")
+def api_transcribe():
+    data = request.get_json(force=True)
+    meeting = data.get("meeting", "")
+    if not meeting:
+        return jsonify({"error": "缺少会议"}), 400
+    model = data.get("model", "medium")
+    language = data.get("language") or None
+    force = bool(data.get("force"))
+    tid = start_task("transcribe", task_transcribe, meeting, model, language, force)
+    return jsonify({"task": tid})
+
+
+@app.post("/api/summarize")
+def api_summarize():
+    data = request.get_json(force=True)
+    meeting = data.get("meeting", "")
+    if not meeting:
+        return jsonify({"error": "缺少会议"}), 400
+    tid = start_task("summarize", task_summarize, meeting, bool(data.get("force")))
+    return jsonify({"task": tid})
+
+
+@app.post("/api/ask")
+def api_ask():
+    data = request.get_json(force=True)
+    question = (data.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "问题不能为空"}), 400
+    meeting = data.get("meeting") or None
+    top_k = int(data.get("top_k", 5))
+    tid = start_task("ask", task_ask, question, meeting, top_k)
+    return jsonify({"task": tid})
+
+
+@app.post("/api/search")
+def api_search():
+    data = request.get_json(force=True)
+    query = (data.get("query") or "").strip()
+    if not query:
+        return jsonify({"error": "关键词不能为空"}), 400
+    idx = mb.build_index(data.get("meeting") or None)
+    if not idx.docs:
+        return jsonify({"hits": [], "error": "没有可检索的转写/纪要文本"}), 200
+    hits = idx.search(query, top_k=int(data.get("top_k", 5)))
+    return jsonify({"hits": [{"meeting": h["meeting"], "file": h["file"], "kind": h["kind"],
+                              "score": round(h["score"], 2), "text": h["text"]} for h in hits]})
+
+
+@app.get("/api/task/<tid>")
+def api_task(tid):
+    with _TLOCK:
+        t = TASKS.get(tid)
+    if not t:
+        return jsonify({"error": "任务不存在"}), 404
+    return jsonify(t)
+
+
+@app.get("/api/config")
+def api_config():
+    mb.load_env()
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    return jsonify({
+        "configured": bool(key),
+        "masked": mb.mask_key(key) if key else None,
+        "model": mb.DEEPSEEK_MODEL,
+        "base_url": mb.DEEPSEEK_BASE_URL,
+        "env_file": os.path.basename(mb.env_file_path()),
+    })
+
+
+@app.post("/api/config")
+def api_config_set():
+    data = request.get_json(force=True)
+    action = data.get("action")
+    if action == "set":
+        key = (data.get("key") or "").strip()
+        if not key:
+            return jsonify({"error": "Key 不能为空"}), 400
+        mb.save_api_key(key)
+        os.environ["DEEPSEEK_API_KEY"] = key
+        return jsonify({"ok": True, "masked": mb.mask_key(key)})
+    if action == "clear":
+        mb.clear_api_key()
+        os.environ.pop("DEEPSEEK_API_KEY", None)
+        return jsonify({"ok": True})
+    return jsonify({"error": "未知操作"}), 400
+
+
+# ---------------- 启动 ----------------
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="MeetingBook Web 界面")
+    ap.add_argument("--port", type=int, default=8765, help="端口（默认 8765）")
+    ap.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
+    ap.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    args = ap.parse_args()
+
+    url = f"http://{args.host}:{args.port}"
+    if not args.no_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    print(f"MeetingBook Web 界面已启动: {url}  (Ctrl+C 退出)")
+    print(f"会议仓库: {ROOT}")
+    app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

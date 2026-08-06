@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeetingBook 会议助手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #4f6ef7; --primary-dark: #3d56d8; --bg: #f4f6fb;
+    --card: #fff; --border: #e3e8f2; --text: #24292f; --muted: #6b7280;
+    --ok: #16a34a; --warn: #d97706; --err: #dc2626;
+  }
+  body { font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 20px; color: var(--primary); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+  .badge.ok { background: #e8f7ee; color: var(--ok); }
+  .badge.warn { background: #fdf3e3; color: var(--warn); }
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+    transition: all .15s;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover { background: var(--primary-dark); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  #taskBar {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 10px 24px; display: flex; align-items: center; gap: 16px;
+  }
+  #taskBar.hidden { display: none; }
+  .task-info { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .progress { flex: 1; height: 8px; background: #eef1f8; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; width: 0; background: var(--primary); border-radius: 4px; transition: width .4s; }
+
+  main { display: grid; grid-template-columns: 280px 1fr 340px; gap: 16px; padding: 16px 24px; align-items: start; }
+  aside, section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  aside { position: sticky; top: 72px; max-height: calc(100vh - 90px); overflow-y: auto; }
+  aside .btn { width: 100%; margin-bottom: 12px; }
+  #meetingList { list-style: none; }
+  #meetingList li {
+    padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 6px;
+    border: 1px solid transparent;
+  }
+  #meetingList li:hover { background: #f0f3fb; }
+  #meetingList li.active { background: #eaf0fe; border-color: var(--primary); }
+  .m-date { font-size: 12px; color: var(--primary); font-weight: 600; }
+  .m-topic { font-size: 14px; margin: 2px 0; }
+  .m-counts { font-size: 12px; color: var(--muted); }
+
+  #detail h2 { font-size: 18px; margin-bottom: 12px; }
+  #detailEmpty { color: var(--muted); text-align: center; padding: 60px 0; }
+  .actions { display: flex; gap: 10px; margin-bottom: 14px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .tab { border: none; background: none; padding: 8px 14px; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .item-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .item-card .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
+  .item-card audio { width: 100%; margin-top: 6px; }
+  .item-card pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; font-family: inherit; color: #374151; max-height: 400px; overflow-y: auto; }
+  .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+
+  #qa h2 { font-size: 16px; margin-bottom: 12px; }
+  .qa-input { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .qa-input input, .qa-input select {
+    padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none;
+  }
+  .qa-input input:focus { border-color: var(--primary); }
+  #qaResult { font-size: 13px; }
+  .hit { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .hit .src { font-size: 12px; color: var(--primary); margin-bottom: 4px; }
+  .hit .txt { color: #374151; line-height: 1.6; }
+  .answer { background: #f0f6ff; border: 1px solid #cfe0ff; border-radius: 8px; padding: 12px; margin-bottom: 12px; line-height: 1.7; white-space: pre-wrap; }
+  .qa-loading { color: var(--muted); padding: 12px 0; }
+
+  .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal-mask.open { display: flex; }
+  .modal { background: var(--card); border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw; }
+  .modal h3 { margin-bottom: 14px; }
+  .modal .row { margin-bottom: 12px; }
+  .modal label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .modal input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+  .modal .row-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+  .err { color: var(--err); font-size: 13px; margin-top: 6px; }
+
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } aside { position: static; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📖 MeetingBook 会议助手</h1>
+  <div class="header-right">
+    <span id="keyBadge" class="badge warn">Key 未配置</span>
+    <button class="btn" onclick="openKeyModal()">API Key 配置</button>
+  </div>
+</header>
+
+<div id="taskBar" class="hidden">
+  <div class="task-info" id="taskInfo">—</div>
+  <div class="progress"><div class="progress-fill" id="taskProgress"></div></div>
+</div>
+
+<main>
+  <aside>
+    <button class="btn primary" onclick="openImportModal()">＋ 导入音频</button>
+    <ul id="meetingList"></ul>
+  </aside>
+
+  <section id="detail">
+    <div id="detailEmpty">从左侧选择一个会议</div>
+    <div id="detailContent" style="display:none">
+      <h2 id="detailTitle"></h2>
+      <div class="actions">
+        <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
+        <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
+        <button class="btn" onclick="refreshDetail()">刷新</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="audio" onclick="switchTab('audio')">音频</button>
+        <button class="tab" data-tab="transcripts" onclick="switchTab('transcripts')">转写</button>
+        <button class="tab" data-tab="notes" onclick="switchTab('notes')">纪要</button>
+      </div>
+      <div id="tab-audio" class="tab-panel active"></div>
+      <div id="tab-transcripts" class="tab-panel"></div>
+      <div id="tab-notes" class="tab-panel"></div>
+    </div>
+  </section>
+
+  <section id="qa">
+    <h2>🔍 检索提问</h2>
+    <div class="qa-input">
+      <input id="qaQuery" placeholder="输入问题或关键词，如：预算 / 上周决定了什么？" onkeydown="if(event.key==='Enter')doQA()">
+      <select id="qaMode">
+        <option value="ask">LLM 问答（推荐）</option>
+        <option value="search">关键词检索</option>
+      </select>
+      <button class="btn primary" onclick="doQA()">提交</button>
+    </div>
+    <div id="qaResult"></div>
+  </section>
+</main>
+
+<!-- 导入模态框 -->
+<div class="modal-mask" id="importModal">
+  <div class="modal">
+    <h3>导入音频</h3>
+    <div class="row"><label>音频文件</label><input type="file" id="importFile" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.amr,.3gp,.webm"></div>
+    <div class="row"><label>会议主题（留空用文件名）</label><input type="text" id="importTopic" placeholder="如：产品评审"></div>
+    <div class="row"><label>会议日期（留空今天）</label><input type="date" id="importDate"></div>
+    <div class="err" id="importErr"></div>
+    <div class="row-btns">
+      <button class="btn" onclick="closeModal('importModal')">取消</button>
+      <button class="btn primary" onclick="doImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- API Key 模态框 -->
+<div class="modal-mask" id="keyModal">
+  <div class="modal">
+    <h3>DeepSeek API Key</h3>
+    <div class="row"><label>当前状态</label><div id="keyStatus" style="font-size:14px">…</div></div>
+    <div class="row"><label>新的 API Key（sk-…）</label><input type="password" id="keyInput" placeholder="粘贴 Key"></div>
+    <div class="err" id="keyErr"></div>
+    <div class="row-btns">
+      <button class="btn" onclick="clearKey()">清除</button>
+      <button class="btn" onclick="closeModal('keyModal')">关闭</button>
+      <button class="btn primary" onclick="saveKey()">保存</button>
+    </div>
+    <div class="note">Key 保存到项目根目录 .env（已被 git 忽略，不入库）。summarize / 问答需要 Key。</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+let meetings = [];
+let currentMeeting = null;
+let activeTask = null;
+
+const $ = id => document.getElementById(id);
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok && !data.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+/* ---------- 会议列表与详情 ---------- */
+async function loadMeetings() {
+  meetings = await api("/api/meetings");
+  const ul = $("meetingList");
+  ul.innerHTML = "";
+  if (!meetings.length) { ul.innerHTML = '<li class="empty-tip">还没有会议，先导入音频</li>'; return; }
+  meetings.forEach(m => {
+    const li = document.createElement("li");
+    li.dataset.name = m.name;
+    li.innerHTML = `<div class="m-date">${m.date}</div><div class="m-topic">${escapeHtml(m.topic)}</div>
+      <div class="m-counts">音频 ${m.audio} · 转写 ${m.transcripts} · 纪要 ${m.notes}</div>`;
+    li.onclick = () => selectMeeting(m.name, li);
+    ul.appendChild(li);
+  });
+  if (currentMeeting) {
+    const li = ul.querySelector(`li[data-name="${CSS.escape(currentMeeting)}"]`);
+    if (li) li.classList.add("active");
+  }
+}
+
+async function selectMeeting(name, li) {
+  currentMeeting = name;
+  document.querySelectorAll("#meetingList li").forEach(x => x.classList.remove("active"));
+  if (li) li.classList.add("active");
+  await refreshDetail();
+}
+
+async function refreshDetail() {
+  if (!currentMeeting) return;
+  const d = await api("/api/meeting/" + encodeURIComponent(currentMeeting));
+  $("detailEmpty").style.display = "none";
+  $("detailContent").style.display = "block";
+  $("detailTitle").textContent = d.date + " · " + d.topic;
+
+  $("tab-audio").innerHTML = d.audio.length ? d.audio.map(a =>
+    `<div class="item-card"><div class="name"><span>${escapeHtml(a.name)}</span><span style="color:var(--muted);font-weight:400">${a.size_mb} MB</span></div><audio controls preload="metadata" src="${a.url}"></audio></div>`
+  ).join("") : '<div class="empty-tip">无音频</div>';
+
+  $("tab-transcripts").innerHTML = d.transcripts.length ? d.transcripts.map(t =>
+    `<div class="item-card"><div class="name">${escapeHtml(t.name)}</div><pre>${escapeHtml(t.content)}</pre></div>`
+  ).join("") : '<div class="empty-tip">尚未转写</div>';
+
+  $("tab-notes").innerHTML = d.notes.length ? d.notes.map(n =>
+    `<div class="item-card"><div class="name">${escapeHtml(n.name)}</div><div class="md-body">${renderMd(n.content)}</div></div>`
+  ).join("") : '<div class="empty-tip">尚未生成纪要</div>';
+
+  $("btnTranscribe").disabled = !d.audio.length;
+  $("btnSummarize").disabled = !d.transcripts.length;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
+}
+
+/* ---------- 任务（转写/摘要/问答） ---------- */
+function startTranscribe() {
+  if (!currentMeeting) return;
+  startTask("transcribe", { meeting: currentMeeting, model: "medium" }, "转写中…");
+}
+function startSummarize() {
+  if (!currentMeeting) return;
+  startTask("summarize", { meeting: currentMeeting }, "生成纪要中…");
+}
+function startTask(name, body, label) {
+  $("taskBar").classList.remove("hidden");
+  setTask(label, 0);
+  api("/api/" + name, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(d => pollTask(d.task))
+    .catch(e => { setTask("失败: " + e.message, 0); setTimeout(hideTask, 3000); });
+}
+function pollTask(tid) {
+  const t = setInterval(async () => {
+    try {
+      const d = await api("/api/task/" + tid);
+      renderTask(d);
+      if (d.status === "done") {
+        clearInterval(t); setTimeout(hideTask, 600);
+        await loadMeetings(); if (currentMeeting) await refreshDetail();
+      } else if (d.status === "error") {
+        clearInterval(t); setTask("失败: " + (d.error || "未知错误"), 100);
+        setTimeout(hideTask, 5000);
+      }
+    } catch (e) { clearInterval(t); setTask("任务异常: " + e.message, 0); }
+  }, 1000);
+}
+function renderTask(d) {
+  const stage = stageText(d.stage, d.info);
+  const info = d.info || {};
+  let pct = 0, text = stage;
+  if (d.stage === "transcribing" && info.total) pct = Math.round(info.index / info.total * 100);
+  if (d.stage === "summarizing" && info.total) pct = Math.round(info.index / info.total * 100);
+  if (d.stage === "done") pct = 100;
+  if (d.status === "error") { pct = 100; text = "错误"; }
+  setTask(text, pct);
+}
+function stageText(s, info) {
+  const i = info || {};
+  switch (s) {
+    case "model_start": return "加载 Whisper 模型…";
+    case "model_ready": return "模型就绪，开始转写";
+    case "transcribing": return `转写 ${i.file || ""} (${i.index}/${i.total})`;
+    case "summarizing": return `摘要 ${i.file || ""} (${i.index}/${i.total})`;
+    case "searching": return `检索到 ${i.hits || 0} 条相关片段`;
+    case "llm": return "DeepSeek 生成回答中…";
+    default: return s || "…";
+  }
+}
+function setTask(text, pct) { $("taskInfo").textContent = text; $("taskProgress").style.width = pct + "%"; }
+function hideTask() { $("taskBar").classList.add("hidden"); }
+
+/* ---------- 检索 / 问答 ---------- */
+async function doQA() {
+  const q = $("qaQuery").value.trim();
+  if (!q) return;
+  const mode = $("qaMode").value;
+  const out = $("qaResult");
+  out.innerHTML = '<div class="qa-loading">检索中…</div>';
+  try {
+    if (mode === "search") {
+      const d = await api("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q, top_k: 5 }) });
+      out.innerHTML = d.hits.length ? d.hits.map(renderHit).join("") : '<div class="empty-tip">未找到相关片段</div>';
+    } else {
+      const d = await api("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, top_k: 5 }) });
+      out.innerHTML = '<div class="qa-loading">' + stageText("searching", {}) + '</div>';
+      pollAsk(d.task, out);
+    }
+  } catch (e) { out.innerHTML = `<div class="err">${escapeHtml(e.message)}</div>`; }
+}
+function pollAsk(tid, out) {
+  const t = setInterval(async () => {
+    try {
+      const d = await api("/api/task/" + tid);
+      if (d.status === "done") {
+        clearInterval(t);
+        const r = d.result || {};
+        out.innerHTML = `<div class="answer">${escapeHtml(r.answer || "")}</div>` +
+          (r.hits || []).map(renderHit).join("");
+      } else if (d.status === "error") {
+        clearInterval(t); out.innerHTML = `<div class="err">${escapeHtml(d.error || "失败")}</div>`;
+      } else {
+        const el = out.querySelector(".qa-loading");
+        if (el) el.textContent = stageText(d.stage, d.info);
+      }
+    } catch (e) { clearInterval(t); out.innerHTML = `<div class="err">${escapeHtml(e.message)}</div>`; }
+  }, 1000);
+}
+function renderHit(h) {
+  return `<div class="hit"><div class="src">${escapeHtml(h.meeting)} / ${escapeHtml(h.file)}（${h.kind}）· 命中 ${h.score}</div>
+    <div class="txt">${escapeHtml(h.text.replace(/^\[[^\]]*\]\s*/gm, ""))}</div></div>`;
+}
+
+/* ---------- 导入 ---------- */
+function openImportModal() { $("importErr").textContent = ""; openModal("importModal"); }
+async function doImport() {
+  const file = $("importFile").files[0];
+  if (!file) { $("importErr").textContent = "请选择音频文件"; return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("meeting", $("importTopic").value.trim());
+  if ($("importDate").value) fd.append("date", $("importDate").value);
+  $("importErr").textContent = "";
+  try {
+    await api("/api/import", { method: "POST", body: fd });
+    closeModal("importModal");
+    await loadMeetings();
+  } catch (e) { $("importErr").textContent = e.message; }
+}
+
+/* ---------- API Key ---------- */
+async function openKeyModal() {
+  openModal("keyModal");
+  $("keyErr").textContent = "";
+  $("keyInput").value = "";
+  try {
+    const d = await api("/api/config");
+    $("keyStatus").textContent = d.configured ? "已配置: " + d.masked + "（模型 " + d.model + "）" : "未配置";
+  } catch (e) { $("keyStatus").textContent = "查询失败"; }
+}
+async function saveKey() {
+  const key = $("keyInput").value.trim();
+  if (!key) { $("keyErr").textContent = "Key 不能为空"; return; }
+  try {
+    await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set", key }) });
+    closeModal("keyModal"); await loadKeyBadge();
+  } catch (e) { $("keyErr").textContent = e.message; }
+}
+async function clearKey() {
+  try {
+    await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear" }) });
+    closeModal("keyModal"); await loadKeyBadge();
+  } catch (e) { $("keyErr").textContent = e.message; }
+}
+async function loadKeyBadge() {
+  try {
+    const d = await api("/api/config");
+    const b = $("keyBadge");
+    b.className = "badge " + (d.configured ? "ok" : "warn");
+    b.textContent = d.configured ? "Key 已配置" : "Key 未配置";
+  } catch (e) {}
+}
+
+/* ---------- 模态框工具 ---------- */
+function openModal(id) { $(id).classList.add("open"); }
+function closeModal(id) { $(id).classList.remove("open"); }
+document.querySelectorAll(".modal-mask").forEach(m =>
+  m.addEventListener("click", e => { if (e.target === m) m.classList.remove("open"); }));
+
+/* ---------- 极简 Markdown 渲染 ---------- */
+function renderMd(src) {
+  let s = escapeHtml(src || "");
+  s = s.replace(/^###\s+(.+)$/gm, "<h4>$1</h4>");
+  s = s.replace(/^##\s+(.+)$/gm, "<h3>$1</h3>");
+  s = s.replace(/^#\s+(.+)$/gm, "<h2>$1</h2>");
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/`(.+?)`/g, "<code>$1</code>");
+  s = s.replace(/^\s*[-*]\s+(.+)$/gm, "<li>$1</li>");
+  s = s.replace(/(<li>[\s\S]*?<\/li>)\s*(?!<li>)/g, "<ul>$1</ul>");
+  s = s.replace(/\n/g, "<br>");
+  return `<div style="font-size:13px;line-height:1.8;color:#374151">${s}</div>`;
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---------- 启动 ---------- */
+loadMeetings();
+loadKeyBadge();
+</script>
+</body>
+</html>
