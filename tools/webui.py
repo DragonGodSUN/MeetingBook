@@ -82,11 +82,15 @@ def task_transcribe(cb, meeting, model, language, force):
         return {"done": [], "skipped": len(files), "already": True}
     done, failed = [], []
     mname = os.path.basename(m)
+    live: list[str] = []  # 累积实时转写文本（供前端预览）
     for i, f in enumerate(todo):
         cb("transcribing", {"meeting": mname, "file": f, "index": i + 1, "total": len(todo)})
 
         def prog(s, info, _f=f):
-            cb(s, {**info, "meeting": mname, "file": _f})
+            nonlocal live
+            if s == "transcribing" and info.get("text"):
+                live.append(f"[{info.get('ts', '')}] {info['text']}")
+            cb(s, {**info, "meeting": mname, "file": _f, "live": list(live)})
         try:
             out = transcribe_audio(os.path.join(audio_dir, f), model_size=model,
                                    language=language, output_dir=t_dir, progress_cb=prog)

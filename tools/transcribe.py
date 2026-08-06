@@ -135,18 +135,26 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
     # 写输出
     print(f"[3/3] 写出 {out_path}")
     n_seg = 0
+    duration = getattr(info, "duration", 0) or 0
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(f"# {base}\n")
-        f.write(f"- 语言: {detected_lang} | 音频时长: {fmt_ts(info.duration)}\n")
+        f.write(f"- 语言: {detected_lang} | 音频时长: {fmt_ts(duration)}\n")
         f.write(f"- 转写时间: {time.strftime('%Y-%m-%d %H:%M')} | 模型: {model_size}\n\n")
         for seg in segments:
             f.write(f"[{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}] {seg.text.strip()}\n")
             n_seg += 1
             if n_seg % 20 == 0:
                 print(f"      已转写 {n_seg} 段 ...")
-            progress_cb("transcribing", {"n": n_seg})
+            # 真实进度：已转写音频时长 / 总时长（转写完成前最大 99）
+            pct = min(99, int(seg.end / duration * 100)) if duration else 0
+            progress_cb("transcribing", {
+                "n": n_seg,
+                "pct": pct,
+                "text": seg.text.strip()[:120],
+                "ts": f"{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}",
+            })
 
-    progress_cb("done", {"out_path": out_path})
+    progress_cb("done", {"out_path": out_path, "pct": 100})
     print(f"完成: {n_seg} 段，耗时 {time.time()-t0:.1f}s")
     return out_path
 

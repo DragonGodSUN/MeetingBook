@@ -34,12 +34,22 @@
 
   #taskBar {
     background: var(--card); border-bottom: 1px solid var(--border);
-    padding: 10px 24px; display: flex; align-items: center; gap: 16px;
+    padding: 10px 24px;
   }
   #taskBar.hidden { display: none; }
-  .task-info { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .task-info { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 12px; }
+  .task-pct { font-size: 14px; font-weight: 700; color: var(--primary); white-space: nowrap; }
   .progress { flex: 1; height: 8px; background: #eef1f8; border-radius: 4px; overflow: hidden; }
-  .progress-fill { height: 100%; width: 0; background: var(--primary); border-radius: 4px; transition: width .4s; }
+  .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4f6ef7, #7b93f9); border-radius: 4px; transition: width .4s; }
+  .task-live {
+    margin-top: 8px; max-height: 96px; overflow-y: auto;
+    font-size: 12px; color: #4a5568; line-height: 1.7;
+    border-left: 2px solid #dbe3f5; padding-left: 12px; background: #fbfcff; border-radius: 0 6px 6px 0;
+  }
+  .task-live.hidden { display: none; }
+  .task-live .live-line { margin: 2px 0; }
+  .task-live .live-line .ts { color: var(--primary); margin-right: 8px; font-family: Consolas, monospace; }
 
   main { display: grid; grid-template-columns: 280px 1fr 340px; gap: 16px; padding: 16px 24px; align-items: start; }
   aside, section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
@@ -151,8 +161,12 @@
 </header>
 
 <div id="taskBar" class="hidden">
-  <div class="task-info" id="taskInfo">—</div>
+  <div class="task-head">
+    <div class="task-info" id="taskInfo">—</div>
+    <div class="task-pct" id="taskPct"></div>
+  </div>
   <div class="progress"><div class="progress-fill" id="taskProgress"></div></div>
+  <div class="task-live" id="taskLive"></div>
 </div>
 
 <main>
@@ -404,14 +418,26 @@ function pollTask(tid) {
   }, 1000);
 }
 function renderTask(d) {
-  const stage = stageText(d.stage, d.info);
   const info = d.info || {};
-  let pct = 0, text = stage;
-  if (d.stage === "transcribing" && info.total) pct = Math.round(info.index / info.total * 100);
-  if (d.stage === "summarizing" && info.total) pct = Math.round(info.index / info.total * 100);
+  let pct = 0, text = stageText(d.stage, info), live = null;
+  if (d.stage === "transcribing") {
+    if (info.pct != null && info.total) {
+      // 总进度 = (已完成文件 + 当前文件内进度) / 总数
+      pct = Math.round(((info.index - 1) + info.pct / 100) / info.total * 100);
+      text = `转写 ${info.file}（${info.index}/${info.total}）· 本音频 ${info.pct}%`;
+    } else if (info.pct != null) {
+      pct = info.pct;
+      text = `转写 ${info.file} · ${info.pct}%`;
+    } else if (info.total) {
+      pct = Math.round(info.index / info.total * 100);
+    }
+    live = info.live || [];
+  } else if (d.stage === "summarizing" && info.total) {
+    pct = Math.round(info.index / info.total * 100);
+  }
   if (d.stage === "done") pct = 100;
   if (d.status === "error") { pct = 100; text = "错误"; }
-  setTask(text, pct);
+  setTask(text, pct, live);
 }
 function stageText(s, info) {
   const i = info || {};
@@ -425,8 +451,28 @@ function stageText(s, info) {
     default: return s || "…";
   }
 }
-function setTask(text, pct) { $("taskInfo").textContent = text; $("taskProgress").style.width = pct + "%"; }
-function hideTask() { $("taskBar").classList.add("hidden"); }
+function setTask(text, pct, live) {
+  $("taskInfo").textContent = text;
+  $("taskProgress").style.width = pct + "%";
+  $("taskPct").textContent = pct + "%";
+  const liveEl = $("taskLive");
+  if (live && live.length) {
+    liveEl.classList.remove("hidden");
+    liveEl.innerHTML = live.slice(-15).map(l => {
+      const m = l.match(/^\[([^\]]*)\]\s*(.*)$/);
+      return m
+        ? `<div class="live-line"><span class="ts">${escapeHtml(m[1])}</span>${escapeHtml(m[2])}</div>`
+        : `<div class="live-line">${escapeHtml(l)}</div>`;
+    }).join("");
+    liveEl.scrollTop = liveEl.scrollHeight;
+  } else if (live) {
+    liveEl.classList.remove("hidden");
+    liveEl.innerHTML = '<div class="live-line">正在识别…</div>';
+  } else {
+    liveEl.classList.add("hidden");
+  }
+}
+function hideTask() { $("taskBar").classList.add("hidden"); $("taskLive").classList.add("hidden"); }
 
 /* ---------- 检索 / 问答 ---------- */
 async function doQA() {
