@@ -1,0 +1,28 @@
+# ===== 音频 / 录音文件（体积大，不进版本库）=====
+# 录音文件仅保存在本地 audio/ 目录，通过 .gitkeep 保留目录结构
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.ogg
+*.flac
+*.wma
+*.opus
+*.amr
+*.3gp
+*.webm
+*.mp4
+*.mov
+
+# ===== 压缩包 / 大附件 =====
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# ===== 系统 / 临时文件 =====
+Thumbs.db
+.DS_Store
+~$*
+*.tmp
