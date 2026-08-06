@@ -36,3 +36,9 @@ __pycache__/
 
 # ===== Reasonix 工具运行元数据（会话日志、任务快照）=====
 .reasonix/
+
+# ===== 会议数据（隐私：不入库，仅保留目录结构 .gitkeep）=====
+# 会议音频、转写、纪要、属性、议程均含会议内容，一律不纳入 git
+meetings/**
+!meetings/**/
+!meetings/**/.gitkeep
