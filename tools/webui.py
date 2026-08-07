@@ -118,7 +118,7 @@ def task_autofill(cb, meeting, force):
     return {"filled": filled}
 
 
-def task_summarize(cb, meeting, force):
+def task_summarize(cb, meeting, force, only_file=None):
     m = mb.pick_meeting(meeting)
     if not m:
         raise RuntimeError(f"未找到会议: {meeting}")
@@ -130,8 +130,14 @@ def task_summarize(cb, meeting, force):
     files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
     if not files:
         raise RuntimeError("该会议没有转写文本——请先转写音频，再生成纪要。")
-    todo = [f for f in files
-            if force or not os.path.exists(os.path.join(m, "notes", mb.note_name_for(f)))]
+    if only_file:
+        # 重新生成指定转写文件的纪要
+        todo = [f for f in files if f == only_file]
+        if not todo:
+            raise RuntimeError(f"未找到转写文件: {only_file}")
+    else:
+        todo = [f for f in files
+                if force or not os.path.exists(os.path.join(m, "notes", mb.note_name_for(f)))]
     if not todo:
         return {"done": [], "already": True}
     done, failed = [], []
@@ -378,7 +384,8 @@ def api_summarize():
     meeting = data.get("meeting", "")
     if not meeting:
         return jsonify({"error": "缺少会议"}), 400
-    tid = start_task("summarize", task_summarize, meeting, bool(data.get("force")))
+    only_file = data.get("file") or None
+    tid = start_task("summarize", task_summarize, meeting, bool(data.get("force")), only_file)
     return jsonify({"task": tid})
 
 

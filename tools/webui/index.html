@@ -418,9 +418,12 @@ async function refreshDetail() {
     `<div class="item-card"><div class="name">${escapeHtml(t.name)}</div><pre>${escapeHtml(t.content)}</pre></div>`
   ).join("") : '<div class="empty-tip">尚未转写</div>';
 
-  $("tab-notes").innerHTML = d.notes.length ? d.notes.map(n =>
-    `<div class="item-card"><div class="name">${escapeHtml(n.name)}</div><div class="md-body">${renderMd(n.content)}</div></div>`
-  ).join("") : '<div class="empty-tip">尚未生成纪要</div>';
+  $("tab-notes").innerHTML = d.notes.length ? d.notes.map(n => {
+    const srcFile = n.name.replace(/-纪要\.md$/, "-转写.txt");
+    return `<div class="item-card"><div class="name"><span>${escapeHtml(n.name)}</span>` +
+      `<button class="btn" onclick="regenerateNote('${escapeHtml(srcFile)}','${escapeHtml(n.name)}')" style="padding:2px 8px;font-size:12px" title="用 AI 重新生成该纪要">🔄 重新生成</button></div>` +
+      `<div class="md-body">${renderMd(n.content)}</div></div>`;
+  }).join("") : '<div class="empty-tip">尚未生成纪要</div>';
 
   $("btnTranscribe").disabled = !d.audio.length;
   $("btnTranscribe").title = d.audio.length ? "" : "请先导入音频";
@@ -592,7 +595,14 @@ function startTranscribe() {
 }
 function startSummarize() {
   if (!currentMeeting) return;
-  startTask("summarize", { meeting: currentMeeting }, "生成纪要中…");
+  // 已有纪要时确认覆盖（force 重新生成）
+  const force = confirm("将重新生成该会议全部纪要（覆盖已有）？\n\n点“确定”= 全部重新生成；点“取消”= 只补生成缺失的。");
+  startTask("summarize", { meeting: currentMeeting, force }, "生成纪要中…");
+}
+function regenerateNote(srcFile, noteName) {
+  if (!currentMeeting) return;
+  if (!confirm(`重新生成纪要「${noteName}」？\n将覆盖该文件已有内容。`)) return;
+  startTask("summarize", { meeting: currentMeeting, force: true, file: srcFile }, `重新生成 ${noteName}…`);
 }
 function startTask(name, body, label) {
   $("taskBar").classList.remove("hidden");
