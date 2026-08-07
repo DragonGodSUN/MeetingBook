@@ -35,10 +35,16 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)  # 保证 `from tools.xxx import ...` 可从任意 cwd 工作
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
-# 纪要生成的最大输出 token（输出过长会截断导致纪要不完整；长会议可调大，上限取决于模型）
-SUMMARY_MAX_TOKENS = int(os.environ.get("SUMMARY_MAX_TOKENS", "4096"))
-# 送入模型的转写文本最大字符数（防超模型上下文；超出部分截断并提示）
-SUMMARY_MAX_INPUT_CHARS = int(os.environ.get("SUMMARY_MAX_INPUT_CHARS", "30000"))
+
+
+def summary_max_tokens() -> int:
+    """纪要生成的最大输出 token（SUMMARY_MAX_TOKENS，可运行时调整；长会议可调大）。"""
+    return int(os.environ.get("SUMMARY_MAX_TOKENS", "4096"))
+
+
+def summary_max_input_chars() -> int:
+    """送入模型的转写文本最大字符数（SUMMARY_MAX_INPUT_CHARS，可运行时调整；防超上下文）。"""
+    return int(os.environ.get("SUMMARY_MAX_INPUT_CHARS", "30000"))
 
 # ---------- 终端输出 ----------
 
@@ -592,9 +598,9 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
     if len(text.strip()) < 50:
         warn(f"转写内容过短，跳过: {os.path.basename(txt_path)}")
         return ""
-    if len(text) > SUMMARY_MAX_INPUT_CHARS:
-        warn(f"转写文本过长（{len(text)} 字符），已截断到 {SUMMARY_MAX_INPUT_CHARS} 字符供模型处理，纪要可能不完整。")
-        text = text[:SUMMARY_MAX_INPUT_CHARS] + "\n…（此处为截断）"
+    if len(text) > summary_max_input_chars():
+        warn(f"转写文本过长（{len(text)} 字符），已截断到 {summary_max_input_chars()} 字符供模型处理，纪要可能不完整。")
+        text = text[:summary_max_input_chars()] + "\n…（此处为截断）"
 
     props = read_props(meeting["path"])
     meta = [f"会议名称: {meeting['topic']}",
@@ -611,7 +617,7 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
             "以下是语音转写文本，请生成会议纪要（包含：会议概况、讨论要点、决议/结论、待办事项表）：\n\n"
             f"{text}")
     info(f"  调用 DeepSeek 生成摘要 ...")
-    summary = llm_chat(SUMMARY_SYSTEM, user, temperature=0.3, max_tokens=SUMMARY_MAX_TOKENS)
+    summary = llm_chat(SUMMARY_SYSTEM, user, temperature=0.3, max_tokens=summary_max_tokens())
 
     if save:
         notes_dir = os.path.join(meeting["path"], "notes")

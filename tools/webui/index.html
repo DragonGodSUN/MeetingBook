@@ -318,9 +318,16 @@
     <div class="err" id="dirErr"></div>
     <div class="row-btns">
       <button class="btn primary" onclick="saveDir()">保存目录</button>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+    <div class="row"><label>纪要生成：转写输入长度上限（字符）</label><input type="number" id="summaryInputChars" min="1000" step="1000" placeholder="30000"></div>
+    <div class="row"><label>纪要生成：输出长度上限（token）</label><input type="number" id="summaryMaxTokens" min="512" step="512" placeholder="4096"></div>
+    <div class="err" id="settingErr"></div>
+    <div class="row-btns">
+      <button class="btn primary" onclick="saveSettings()">保存纪要参数</button>
       <button class="btn" onclick="closeModal('keyModal')">关闭</button>
     </div>
-    <div class="note">Key 存 `.env` 不入库；切换数据目录后立即生效并持久化，会议列表会刷新。</div>
+    <div class="note">Key 存 `.env` 不入库；切换数据目录后立即生效并持久化，会议列表会刷新。纪要参数写入 `.env`（SUMMARY_MAX_INPUT_CHARS / SUMMARY_MAX_TOKENS）并立即生效。</div>
   </div>
 </div>
 
@@ -795,7 +802,26 @@ async function openKeyModal() {
     const d = await api("/api/config");
     $("keyStatus").textContent = d.configured ? "已配置: " + d.masked + "（模型 " + d.model + "）" : "未配置";
     $("dirStatus").textContent = d.data_dir || "…";
+    $("summaryInputChars").value = d.summary_max_input_chars;
+    $("summaryMaxTokens").value = d.summary_max_tokens;
+    $("settingErr").textContent = "";
   } catch (e) { $("keyStatus").textContent = "查询失败"; }
+}
+async function saveSettings() {
+  const input = $("summaryInputChars").value.trim();
+  const tokens = $("summaryMaxTokens").value.trim();
+  $("settingErr").textContent = "";
+  try {
+    if (input) {
+      await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_setting", key: "SUMMARY_MAX_INPUT_CHARS", value: input }) });
+    }
+    if (tokens) {
+      await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_setting", key: "SUMMARY_MAX_TOKENS", value: tokens }) });
+    }
+    $("settingErr").textContent = "已保存 ✓（重新生成纪要时生效）";
+  } catch (e) { $("settingErr").textContent = e.message; }
 }
 async function saveDir() {
   const path = $("dirInput").value.trim();

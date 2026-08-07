@@ -446,6 +446,8 @@ def api_config():
         "base_url": mb.DEEPSEEK_BASE_URL,
         "env_file": os.path.basename(mb.env_file_path()),
         "data_dir": mb.MEETINGS_ROOT,
+        "summary_max_input_chars": mb.summary_max_input_chars(),
+        "summary_max_tokens": mb.summary_max_tokens(),
     })
 
 
@@ -472,6 +474,19 @@ def api_config_set():
             return jsonify({"error": str(e)}), 400
         mb.save_env("MEETINGS_ROOT", new_dir)  # 持久化到 .env，重启后仍生效
         return jsonify({"ok": True, "data_dir": new_dir})
+    if action == "set_setting":
+        # 通用设置键保存：写 .env + 更新当前进程环境变量（立即生效）
+        key = (data.get("key") or "").strip()
+        allowed = {"SUMMARY_MAX_INPUT_CHARS", "SUMMARY_MAX_TOKENS"}
+        if key not in allowed:
+            return jsonify({"error": f"不支持的设置键: {key}"}), 400
+        try:
+            value = str(int(data.get("value", "")))
+        except ValueError:
+            return jsonify({"error": "必须是正整数"}), 400
+        mb.save_env(key, value)
+        os.environ[key] = value
+        return jsonify({"ok": True, key.lower(): value})
     return jsonify({"error": "未知操作"}), 400
 
 
