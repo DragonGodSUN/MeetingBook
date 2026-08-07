@@ -148,6 +148,16 @@ def get_llm() -> "OpenAI":
     return OpenAI(api_key=get_api_key(), base_url=deepseek_base_url())
 
 
+def fetch_models(timeout: float = 20.0) -> list:
+    """从 API 服务商拉取可用模型名列表（OpenAI 兼容 /models）。失败抛异常给上层提示。"""
+    client = get_llm()
+    resp = client.models.list(timeout=timeout)
+    models = sorted({m.id for m in resp.data if getattr(m, "id", None)})
+    if not models:
+        raise RuntimeError("API 未返回任何模型")
+    return models
+
+
 def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 2048) -> str:
     """调用 DeepSeek chat 模型，返回文本。"""
     client = get_llm()

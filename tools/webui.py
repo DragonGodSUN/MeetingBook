@@ -451,6 +451,21 @@ def api_config():
     })
 
 
+@app.post("/api/models")
+def api_models():
+    """从当前 base_url/key 拉取可用模型列表（OpenAI 兼容 /models）。"""
+    try:
+        models = mb.fetch_models()
+        return jsonify({"ok": True, "models": models})
+    except SystemExit as e:
+        return jsonify({"error": str(e).strip() or "未配置 API Key"}), 400
+    except Exception as e:
+        msg = str(e).strip()
+        if len(msg) > 300:
+            msg = msg[:300] + "…"
+        return jsonify({"error": msg or "获取模型列表失败"}), 400
+
+
 @app.post("/api/config")
 def api_config_set():
     data = request.get_json(force=True)
