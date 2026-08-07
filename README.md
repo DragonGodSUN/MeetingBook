@@ -48,12 +48,13 @@ pip install faster-whisper openai jieba flask
 #   （另需 FFmpeg；国内网络需配置镜像环境变量，见文末）
 
 # 2. 启动 Web 界面（自动打开浏览器）
-.\scripts\启动可视化界面.bat
+双击项目根目录的 `启动可视化界面.bat`，或：
+.\启动可视化界面.bat
 
 # 3. 在页面里：导入音频 → 转写 → 生成纪要 → 检索提问
 ```
 
-终端用户：`.\scripts\启动会议助手.bat` 进入交互菜单。
+终端用户：双击 `启动会议助手.bat`（或命令行 `.\启动会议助手.bat`）进入交互菜单。
 
 ---
 
@@ -61,9 +62,9 @@ pip install faster-whisper openai jieba flask
 
 | 入口 | 命令 / 双击 | 说明 |
 |------|------------|------|
-| **Web 界面**（推荐） | `scripts\启动可视化界面.bat` | 浏览器操作，默认 http://127.0.0.1:8765 |
-| **终端菜单** | `scripts\启动会议助手.bat` | 交互式数字菜单 |
-| 关闭 Web 服务 | `scripts\关闭可视化界面.bat` | 按端口/进程精确终止 |
+| **Web 界面**（推荐） | 双击 `启动可视化界面.bat` | 浏览器操作，默认 http://127.0.0.1:8765 |
+| **终端菜单** | 双击 `启动会议助手.bat` | 交互式数字菜单 |
+| 关闭 Web 服务 | 双击 `关闭可视化界面.bat` | 按端口/进程精确终止 |
 
 命令行直接启动：
 
@@ -119,7 +120,7 @@ python tools/meetingbook.py config --clear           # 清除 API Key
 ```
 MeetingBook/
 ├── tools/            # 程序代码（meetingbook.py 主程序 / transcribe.py 转写 / webui.py Web）
-├── scripts/          # 启动/关闭脚本（双击运行）
+├── scripts/          # 启动脚本实现（ps1，由根目录 .bat 调用）
 ├── .env              # API Key 等本地配置（git 已忽略）
 └── meetings/         # 会议数据（全部不入库，仅本地）
     └── <年>/ <年-月>/
