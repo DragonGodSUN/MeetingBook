@@ -20,6 +20,9 @@ import argparse
 import math
 import os
 import re
+
+APP_NAME = "MeetingBook"
+APP_VERSION = "beta0.0.1"
 import sys
 import shutil
 import warnings

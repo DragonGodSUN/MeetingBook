@@ -525,8 +525,8 @@ def main() -> int:
     url = f"http://{args.host}:{args.port}"
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    print(f"MeetingBook Web 界面已启动: {url}  (Ctrl+C 退出)")
-    print(f"会议仓库: {ROOT}")
+    print(f"MeetingBook Web 界面已启动: {url}  (Ctrl+C 退出)  [v{mb.APP_VERSION}]")
+    print(f"项目根目录: {ROOT}")
     print(f"会议数据目录: {mb.MEETINGS_ROOT}")
     app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
