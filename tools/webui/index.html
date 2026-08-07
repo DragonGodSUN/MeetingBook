@@ -320,6 +320,8 @@
       <button class="btn primary" onclick="saveDir()">保存目录</button>
     </div>
     <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+    <div class="row"><label>模型名称</label><input type="text" id="modelInput" placeholder="deepseek-v4-flash"></div>
+    <div class="row"><label>API 地址（base_url，可换服务商）</label><input type="text" id="baseUrlInput" placeholder="https://api.deepseek.com"></div>
     <div class="row"><label>纪要生成：转写输入长度上限（字符）</label><input type="number" id="summaryInputChars" min="1000" step="1000" placeholder="30000"></div>
     <div class="row"><label>纪要生成：输出长度上限（token）</label><input type="number" id="summaryMaxTokens" min="512" step="512" placeholder="4096"></div>
     <div class="err" id="settingErr"></div>
@@ -802,6 +804,8 @@ async function openKeyModal() {
     const d = await api("/api/config");
     $("keyStatus").textContent = d.configured ? "已配置: " + d.masked + "（模型 " + d.model + "）" : "未配置";
     $("dirStatus").textContent = d.data_dir || "…";
+    $("modelInput").value = d.model || "";
+    $("baseUrlInput").value = d.base_url || "";
     $("summaryInputChars").value = d.summary_max_input_chars;
     $("summaryMaxTokens").value = d.summary_max_tokens;
     $("settingErr").textContent = "";
@@ -810,6 +814,8 @@ async function openKeyModal() {
 async function saveSettings() {
   const input = $("summaryInputChars").value.trim();
   const tokens = $("summaryMaxTokens").value.trim();
+  const model = $("modelInput").value.trim();
+  const baseUrl = $("baseUrlInput").value.trim();
   $("settingErr").textContent = "";
   try {
     if (input) {
@@ -820,7 +826,16 @@ async function saveSettings() {
       await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "set_setting", key: "SUMMARY_MAX_TOKENS", value: tokens }) });
     }
-    $("settingErr").textContent = "已保存 ✓（重新生成纪要时生效）";
+    if (model) {
+      await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_setting", key: "DEEPSEEK_MODEL", value: model }) });
+    }
+    if (baseUrl) {
+      await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_setting", key: "DEEPSEEK_BASE_URL", value: baseUrl }) });
+    }
+    $("settingErr").textContent = "已保存 ✓（下次生成纪要/问答时生效）";
+    loadKeyBadge();
   } catch (e) { $("settingErr").textContent = e.message; }
 }
 async function saveDir() {

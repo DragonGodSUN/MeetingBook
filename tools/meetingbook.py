@@ -33,8 +33,14 @@ warnings.filterwarnings("ignore", message=".*Building prefix dict.*")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)  # 保证 `from tools.xxx import ...` 可从任意 cwd 工作
-DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+def deepseek_base_url() -> str:
+    """DeepSeek API 地址（DEEPSEEK_BASE_URL，可运行时调整以更换服务商）。"""
+    return os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+
+def deepseek_model() -> str:
+    """LLM 模型名（DEEPSEEK_MODEL，可运行时调整）。"""
+    return os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 
 def summary_max_tokens() -> int:
@@ -139,14 +145,14 @@ def get_api_key() -> str:
 
 def get_llm() -> "OpenAI":
     from openai import OpenAI
-    return OpenAI(api_key=get_api_key(), base_url=DEEPSEEK_BASE_URL)
+    return OpenAI(api_key=get_api_key(), base_url=deepseek_base_url())
 
 
 def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 2048) -> str:
     """调用 DeepSeek chat 模型，返回文本。"""
     client = get_llm()
     resp = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
+        model=deepseek_model(),
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": user}],
         temperature=temperature,

@@ -442,8 +442,8 @@ def api_config():
     return jsonify({
         "configured": bool(key),
         "masked": mb.mask_key(key) if key else None,
-        "model": mb.DEEPSEEK_MODEL,
-        "base_url": mb.DEEPSEEK_BASE_URL,
+        "model": mb.deepseek_model(),
+        "base_url": mb.deepseek_base_url(),
         "env_file": os.path.basename(mb.env_file_path()),
         "data_dir": mb.MEETINGS_ROOT,
         "summary_max_input_chars": mb.summary_max_input_chars(),
@@ -477,13 +477,21 @@ def api_config_set():
     if action == "set_setting":
         # 通用设置键保存：写 .env + 更新当前进程环境变量（立即生效）
         key = (data.get("key") or "").strip()
-        allowed = {"SUMMARY_MAX_INPUT_CHARS", "SUMMARY_MAX_TOKENS"}
+        allowed = {"SUMMARY_MAX_INPUT_CHARS", "SUMMARY_MAX_TOKENS",
+                    "DEEPSEEK_MODEL", "DEEPSEEK_BASE_URL"}
         if key not in allowed:
             return jsonify({"error": f"不支持的设置键: {key}"}), 400
-        try:
-            value = str(int(data.get("value", "")))
-        except ValueError:
-            return jsonify({"error": "必须是正整数"}), 400
+        if key in ("SUMMARY_MAX_INPUT_CHARS", "SUMMARY_MAX_TOKENS"):
+            # 数字类设置
+            try:
+                value = str(int(data.get("value", "")))
+            except ValueError:
+                return jsonify({"error": "必须是正整数"}), 400
+        else:
+            # 字符串类设置（模型名 / API 地址）
+            value = str(data.get("value", "")).strip().strip('"').strip("'")
+            if not value:
+                return jsonify({"error": "值不能为空"}), 400
         mb.save_env(key, value)
         os.environ[key] = value
         return jsonify({"ok": True, key.lower(): value})
