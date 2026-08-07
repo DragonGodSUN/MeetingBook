@@ -876,6 +876,10 @@ function pickModel(m) {
 document.addEventListener("click", e => {
   if (!e.target.closest("#modelRow")) $("modelDropdown").classList.add("hidden");
 });
+// 按 Esc 自动收起模型下拉
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") $("modelDropdown").classList.add("hidden");
+});
 async function fetchModels() {
   $("modelErr").textContent = "正在获取…";
   try {
@@ -962,7 +966,7 @@ async function loadKeyBadge() {
 
 /* ---------- 模态框工具 ---------- */
 function openModal(id) { $(id).classList.add("open"); }
-function closeModal(id) { $(id).classList.remove("open"); }
+function closeModal(id) { $(id).classList.remove("open"); $("modelDropdown").classList.add("hidden"); }
 document.querySelectorAll(".modal-mask").forEach(m =>
   m.addEventListener("click", e => { if (e.target === m) m.classList.remove("open"); }));
 
