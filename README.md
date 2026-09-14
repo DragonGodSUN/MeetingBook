@@ -29,11 +29,14 @@
 |------|:---:|:---:|------|
 | 导入音频 | ✅ 文件上传 | `import` | 自动归档到 `日期-序号` 会议目录 |
 | 语音转写 | ✅ 实时进度条 | `transcribe` | faster-whisper，GPU 加速，中文友好 |
+| 转写修正 | ✅ 一键修正 | `correct` | AI 修正谐音错别字 + 零散短句合并成通顺长句（保留原件，另存修正版） |
 | 视频转写 | ✅ | `transcribe` | 支持 mp4/mkv/webm 等，自动提取音轨 |
 | AI 生成纪要 | ✅ 一键生成 | `summarize` | DeepSeek，含待办表格 |
+| 会议分析 | ✅ 点击跳转 | `analyze` | AI 按内容拆分会议为多个部分并附简述，点击跳转对应转写位置（音频同步定位） |
 | 全文检索 | ✅ | `search` | 中文分词 + BM25 关键词检索 |
 | LLM 问答 | ✅ 带来源引用 | `ask` | 基于会议材料回答 |
 | 音频播放 | ✅ 浏览器直放 | — | — |
+| 图集/附件 | ✅ 拖拽保存 | — | 图片/PDF 灯箱预览、翻页；HEIC 自动转码预览；任意文件拖入即存 `attachments/` |
 | 会议属性编辑 | ✅ 名称/时间/参会人… | — | 存 `meeting.properties` |
 | API Key 管理 | ✅ | `config` | 存 `.env`，不入库 |
 | 删除会议 | ✅ 二次确认 | `remove` | 进回收站 `.trash`，可恢复 |
@@ -80,19 +83,25 @@ python tools/meetingbook.py              # 终端菜单
 ## 🔄 使用流程
 
 ```
-导入音频 → 转写 → 生成纪要 → 检索提问
-  ①        ②        ③        ④
+导入音频 → 转写 → 修正（可选） → 生成纪要 → 检索提问
+  ①        ②       ③            ④         ⑤
 ```
 
 **① 导入**：把录音（音频或视频，mp4/mkv/webm 等）拖入 Web 页面（或 `import 录音.m4a`），自动创建会议目录 `meetings/<年>/<年月>/<日期-序号>/`。视频文件自动提取音轨转写。
 
 **② 转写**：点「转写音频」→ 顶部进度条显示**音频内真实百分比 + 实时识别文本**（像字幕一样逐句冒出）。完成后 `transcript/` 生成带时间戳的文本。
 
-**③ 纪要**：点「生成纪要」→ DeepSeek 依据转写 + 会议属性（参会人/时间/地点）生成结构化纪要，存 `notes/`，含待办表格。
+**③ 修正（可选）**：点「✨ 修正转写」→ AI 分段修正谐音/同音字识别错误，并把零散短句合并成通顺长句，另存为 `X-修正.txt`（原始转写保留不动）。之后生成纪要会**优先使用修正版**。需配置 API Key，长录音会分片多次调用、有进度显示。
 
-**④ 检索/问答**：在「检索提问」输入问题：
+**会议分析**：会议详情切到「分析」标签页 → 点「📊 AI 分析会议」→ AI 按内容把整场会议拆成多个部分（标题 + 时间范围 + 一句话简述），结果存 `analysis.md`。点击任一部分即跳转到「转写」页对应位置（高亮定位），音频/视频同步定位到该部分起点。
+
+**④ 纪要**：点「生成纪要」→ DeepSeek 依据转写（优先修正版）+ 会议属性（参会人/时间/地点）生成结构化纪要，存 `notes/`，含待办表格。
+
+**⑤ 检索/问答**：在「检索提问」输入问题：
 - **LLM 问答**：先检索相关片段，再由 DeepSeek 基于材料回答（带来源引用）
 - **关键词检索**：仅返回命中片段
+
+**图集**：会议详情切到「图集」标签页，可查看会议拍摄的图片与 PDF（点击灯箱预览，←/→ 翻页）；其他文件悬停可下载。HEIC/HEIF（华为/苹果压缩格式）浏览器无法直接显示，服务端自动转成 JPEG 预览（缓存在数据目录 `.thumbcache/`，需 `pip install pillow-heif`）。把任意文件**直接拖进图集区域**（或点「＋ 添加文件」）即保存到该会议的 `attachments/`，重名自动加序号。
 
 ---
 
@@ -102,6 +111,8 @@ python tools/meetingbook.py              # 终端菜单
 python tools/meetingbook.py list                    # 列出所有会议
 python tools/meetingbook.py import 录音.m4a --meeting 产品评审   # 导入（名称存属性文件）
 python tools/meetingbook.py transcribe --all        # 转写所有未转写音频（--meeting 指定，--force 重转）
+python tools/meetingbook.py correct --meeting 产品评审   # AI 修正转写（谐音纠错+合并长句，--force 重修）
+python tools/meetingbook.py analyze --meeting 产品评审   # AI 会议分析（拆分部分+简述，--force 重析）
 python tools/meetingbook.py summarize --all         # 生成全部纪要（--no-save 只预览）
 python tools/meetingbook.py search "性能优化"        # 关键词检索
 python tools/meetingbook.py ask "上周决定了什么？"    # LLM 问答
@@ -210,6 +221,8 @@ python tools/meetingbook.py remove 2026-08-06-001   # 打印清单 → 输入会
 
 ```powershell
 pip install faster-whisper openai jieba flask
+# 图集预览 HEIC/HEIF（华为/苹果压缩图片）需额外安装：
+pip install pillow-heif
 ```
 
 **国内网络必需的环境变量**（本机已持久化）：

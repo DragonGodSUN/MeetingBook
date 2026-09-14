@@ -48,10 +48,15 @@
     margin-top: 8px; max-height: 96px; overflow-y: auto;
     font-size: 12px; color: #4a5568; line-height: 1.7;
     border-left: 2px solid #dbe3f5; padding-left: 12px; background: #fbfcff; border-radius: 0 6px 6px 0;
+    white-space: pre-wrap; word-break: break-word;
   }
   .task-live.hidden { display: none; }
   .task-live .live-line { margin: 2px 0; }
   .task-live .live-line .ts { color: var(--primary); margin-right: 8px; font-family: Consolas, monospace; }
+  /* LLM 流式输出：思考灰显 / 正文正常 / 分段标题 */
+  .task-live .live-r { color: #97a0b5; }
+  .task-live .live-c { color: #24292f; }
+  .task-live .live-sep { color: var(--primary); font-weight: 600; margin: 4px 0 2px; }
 
   /* 音频卡片内联转写状态与进度 */
   .media-state { font-size: 12px; padding: 2px 10px; border-radius: 12px; white-space: nowrap; }
@@ -107,6 +112,90 @@
   .modal textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; outline: none; }
   .modal textarea:focus { border-color: var(--primary); }
   .empty-tip { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+
+  /* ---- 图集（附件） ---- */
+  #tab-gallery { min-height: 220px; border-radius: 8px; }
+  #tab-gallery.dragover { outline: 2px dashed var(--primary); outline-offset: -6px; background: #f5f8ff; }
+  .gallery-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+  .gallery-hint { font-size: 12px; color: var(--muted); }
+  .att-up-progress { font-size: 12px; color: var(--primary); font-weight: 600; }
+  .att-up-progress.hidden { display: none; }
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .att-card {
+    position: relative; border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; background: #fbfcff; cursor: zoom-in; transition: box-shadow .15s;
+  }
+  .att-card:hover { box-shadow: 0 3px 12px rgba(79,110,247,.18); }
+  .att-card > img { width: 100%; height: 120px; object-fit: cover; display: block; background: #eef1f8; }
+  .att-icon { height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 40px; }
+  .att-icon small { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--muted); }
+  .att-card.kind-pdf .att-icon small { color: var(--err); }
+  .att-name {
+    font-size: 12px; padding: 6px 8px; border-top: 1px solid var(--border);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .att-card.kind-other { cursor: default; }
+  .att-dl {
+    position: absolute; left: 6px; bottom: 34px; font-size: 12px; padding: 2px 10px;
+    border-radius: 12px; background: rgba(255,255,255,.9); border: 1px solid var(--border);
+    color: var(--primary); text-decoration: none; display: none;
+  }
+  .att-card.kind-other:hover .att-dl { display: inline-block; }
+  .att-del {
+    position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,.55); color: #fff; cursor: pointer;
+    font-size: 12px; line-height: 1; display: none; align-items: center; justify-content: center;
+  }
+  .att-card:hover .att-del { display: flex; }
+  .att-del:hover { background: var(--err); }
+
+  /* ---- 灯箱预览（图片/PDF） ---- */
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(15,18,28,.88); z-index: 200;
+    display: none; align-items: center; justify-content: center; flex-direction: column;
+  }
+  .lightbox.open { display: flex; }
+  .lb-body img { max-width: 92vw; max-height: 82vh; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+  .lb-body iframe { width: min(1000px, 92vw); height: 82vh; border: none; border-radius: 8px; background: #fff; }
+  .lb-bar { display: flex; align-items: center; gap: 16px; color: #e5e9f5; margin-top: 12px; font-size: 13px; }
+  .lb-bar .lb-name { max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-btn {
+    border: none; background: rgba(255,255,255,.15); color: #fff; cursor: pointer;
+    padding: 6px 14px; border-radius: 8px; font-size: 13px;
+  }
+  .lb-btn:hover { background: rgba(255,255,255,.3); }
+  .lb-nav {
+    position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px;
+    border-radius: 50%; border: none; background: rgba(255,255,255,.15); color: #fff;
+    font-size: 22px; cursor: pointer; line-height: 1;
+  }
+  .lb-nav:hover { background: rgba(255,255,255,.3); }
+  #lbPrev { left: 18px; }
+  #lbNext { right: 18px; }
+  #lbClose { position: absolute; top: 16px; right: 20px; font-size: 16px; padding: 6px 12px; }
+
+  /* ---- 会议分析 ---- */
+  .ana-card {
+    border: 1px solid var(--border); border-left: 3px solid var(--primary);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+    transition: background .15s;
+  }
+  .ana-card:hover { background: #f5f8ff; }
+  .ana-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .ana-idx {
+    background: var(--primary); color: #fff; border-radius: 50%; width: 20px; height: 20px;
+    font-size: 12px; display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .ana-title { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ana-ts { font-size: 12px; color: var(--muted); font-family: Consolas, monospace; white-space: nowrap; }
+  .ana-sum { font-size: 13px; color: #4a5568; line-height: 1.6; }
+
+  /* 转写逐行显示（支持定位跳转） */
+  .t-body { font-size: 13px; line-height: 1.7; color: #374151; max-height: 400px; overflow-y: auto; }
+  .t-line { padding: 1px 8px; border-radius: 4px; }
+  .t-line:hover { background: #f0f3fb; }
+  .t-line .t-ts { color: var(--primary); font-family: Consolas, monospace; margin-right: 8px; font-size: 12px; }
+  .t-line.hl { background: #fff3c4; transition: background 1s; }
 
   /* ---- Markdown 内容样式 ---- */
   .md-body { font-size: 13.5px; line-height: 1.85; color: #374151; }
@@ -226,6 +315,7 @@
       </div>
       <div class="actions">
         <button class="btn primary" id="btnTranscribe" onclick="startTranscribe()">转写音频</button>
+        <button class="btn" id="btnCorrect" onclick="startCorrect()" title="AI 修正谐音错别字，并把零散短句合并成通顺长句">✨ 修正转写</button>
         <button class="btn" id="btnSummarize" onclick="startSummarize()">生成纪要</button>
         <button class="btn" onclick="openPropsModal()">编辑属性</button>
         <button class="btn" onclick="refreshDetail()">刷新</button>
@@ -234,11 +324,15 @@
       <div class="tabs">
         <button class="tab active" data-tab="audio" onclick="switchTab('audio')">音频</button>
         <button class="tab" data-tab="transcripts" onclick="switchTab('transcripts')">转写</button>
+        <button class="tab" data-tab="analysis" onclick="switchTab('analysis')">分析</button>
         <button class="tab" data-tab="notes" onclick="switchTab('notes')">纪要</button>
+        <button class="tab" data-tab="gallery" onclick="switchTab('gallery')">图集</button>
       </div>
       <div id="tab-audio" class="tab-panel active"></div>
       <div id="tab-transcripts" class="tab-panel"></div>
+      <div id="tab-analysis" class="tab-panel"></div>
       <div id="tab-notes" class="tab-panel"></div>
+      <div id="tab-gallery" class="tab-panel"></div>
     </div>
   </section>
 
@@ -255,6 +349,20 @@
     <div id="qaResult"></div>
   </section>
 </main>
+
+<!-- 灯箱预览（图片/PDF） -->
+<div class="lightbox" id="lightbox">
+  <button class="lb-btn" id="lbClose" onclick="closeLightbox()">✕ 关闭 (Esc)</button>
+  <button class="lb-nav" id="lbPrev" onclick="lbNav(-1)">‹</button>
+  <div class="lb-body" id="lbBody"></div>
+  <div class="lb-bar">
+    <span id="lbCount"></span>
+    <span class="lb-name" id="lbName"></span>
+    <button class="lb-btn" id="lbDelete" onclick="deleteAttachment(null, this.dataset.file)">🗑 删除</button>
+    <a class="lb-btn" id="lbOpen" href="#" target="_blank" rel="noopener">新窗口打开</a>
+  </div>
+  <button class="lb-nav" id="lbNext" onclick="lbNav(1)">›</button>
+</div>
 
 <!-- 导入模态框 -->
 <div class="modal-mask" id="importModal">
@@ -345,7 +453,7 @@
     <div class="settings-group">
       <div class="settings-title">③ 纪要生成参数</div>
       <div class="row"><label>转写输入长度上限（字符）</label><input type="number" id="summaryInputChars" min="1000" step="1000" placeholder="30000"></div>
-      <div class="row"><label>输出长度上限（token）</label><input type="number" id="summaryMaxTokens" min="512" step="512" placeholder="4096"></div>
+      <div class="row"><label>输出长度上限（token，思考型模型思考+正文共享，最大 384K）</label><input type="number" id="summaryMaxTokens" min="512" step="512" max="393216" placeholder="8192"></div>
       <div class="err" id="settingErr"></div>
       <div class="row-btns">
         <button class="btn primary" onclick="saveSettings()">保存纪要参数</button>
@@ -396,7 +504,8 @@ async function loadMeetings() {
     const li = document.createElement("li");
     li.dataset.name = m.name;
     li.innerHTML = `<div class="m-date">${m.date}</div><div class="m-topic">${escapeHtml(m.title)}</div>
-      <div class="m-counts">音频 ${m.audio} · 转写 ${m.transcripts} · 纪要 ${m.notes}</div>`;
+      <div class="m-counts">音频 ${m.audio} · 转写 ${m.transcripts} · 纪要 ${m.notes}` +
+      (m.attachments ? ` · 图集 ${m.attachments}` : "") + `</div>`;
     li.onclick = () => selectMeeting(m.name, li);
     ul.appendChild(li);
   });
@@ -461,8 +570,12 @@ async function refreshDetail() {
   }).join("") : '<div class="empty-tip">无音频/视频</div>';
 
   $("tab-transcripts").innerHTML = d.transcripts.length ? d.transcripts.map(t =>
-    `<div class="item-card"><div class="name">${escapeHtml(t.name)}</div><pre>${escapeHtml(t.content)}</pre></div>`
+    `<div class="item-card"><div class="name">${escapeHtml(t.name)}` +
+    (t.corrected ? ` <span class="media-state ok">✨ 已修正</span>` : "") +
+    `</div><div class="t-body">${renderTranscriptLines(t.content)}</div></div>`
   ).join("") : '<div class="empty-tip">尚未转写</div>';
+
+  renderAnalysis(d.analysis || []);
 
   $("tab-notes").innerHTML = d.notes.length ? d.notes.map(n => {
     const srcFile = n.name.replace(/-纪要\.md$/, "-转写.txt");
@@ -476,6 +589,10 @@ async function refreshDetail() {
   const noT = !d.transcripts.length;
   $("btnSummarize").disabled = noT;
   $("btnSummarize").title = noT ? "请先转写音频，再生成纪要" : "";
+  $("btnCorrect").disabled = noT;
+  $("btnCorrect").title = noT ? "请先转写音频，再修正" : "";
+
+  renderGallery(d.attachments || []);
 }
 
 function switchTab(tab) {
@@ -639,6 +756,11 @@ function startTranscribe() {
   if (!currentMeeting) return;
   startTask("transcribe", { meeting: currentMeeting, model: "medium" }, "转写中…");
 }
+function startCorrect() {
+  if (!currentMeeting) return;
+  const force = confirm("重新修正全部转写（覆盖已有修正版）？\n\n点“确定”= 全部重新修正；点“取消”= 只修正还没有修正版的转写。");
+  startTask("correct", { meeting: currentMeeting, force }, "修正转写中…");
+}
 function startSummarize() {
   if (!currentMeeting) return;
   // 已有纪要时确认覆盖（force 重新生成）
@@ -672,6 +794,10 @@ function pollTask(tid) {
     } catch (e) { clearInterval(t); setTask("任务异常: " + e.message, 0); }
   }, 1000);
 }
+function fmtElapsed(s) {
+  if (s >= 3600) return `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 function renderTask(d) {
   const info = d.info || {};
   let pct = 0, text = stageText(d.stage, info), live = null;
@@ -690,9 +816,17 @@ function renderTask(d) {
     updateMediaProgress(info);  // 内联更新对应音频卡片
   } else if (d.stage === "summarizing" && info.total) {
     pct = Math.round(info.index / info.total * 100);
+  } else if (d.stage === "correcting" && info.total) {
+    pct = Math.round(((info.index - 1) + (info.chunk || 0) / Math.max(info.chunks || 1, 1)) / info.total * 100);
   }
   if (d.stage === "done") pct = 100;
   if (d.status === "error") { pct = 100; text = "错误"; }
+  // LLM 流式输出（监视窗口）：后端 live 缓冲优先于转写字幕
+  if (Array.isArray(d.live) && d.live.length) live = d.live;
+  // 运行耗时：长任务（修正/分析需逐片调用 AI）让用户知道仍在推进
+  if (d.status === "running" && typeof d.elapsed === "number") {
+    text += `（已运行 ${fmtElapsed(d.elapsed)}）`;
+  }
   setTask(text, pct, live);
 }
 function updateMediaProgress(info) {
@@ -719,11 +853,14 @@ function stageText(s, info) {
     case "model_start": return "加载 Whisper 模型…";
     case "model_ready": return "模型就绪，开始转写";
     case "transcribing": return `转写 ${i.file || ""} (${i.index}/${i.total})`;
+    case "correcting": return `AI 修正转写 ${i.file || ""} (${i.index}/${i.total})` +
+      (i.chunks ? ` · 片段 ${i.chunk}/${i.chunks}` : "");
     case "summarizing": return `摘要 ${i.file || ""} (${i.index}/${i.total})`;
     case "searching": return `检索到 ${i.hits || 0} 条相关片段`;
     case "llm": return "DeepSeek 生成回答中…";
     case "autofilling": return "从转写提取会议属性…";
     case "agenda_llm": return "AI 生成议程（议题/备注）…";
+    case "analyzing": return "AI 分析会议结构（拆分部分+简述）…";
     default: return s || "…";
   }
 }
@@ -734,12 +871,21 @@ function setTask(text, pct, live) {
   const liveEl = $("taskLive");
   if (live && live.length) {
     liveEl.classList.remove("hidden");
-    liveEl.innerHTML = live.slice(-15).map(l => {
-      const m = l.match(/^\[([^\]]*)\]\s*(.*)$/);
-      return m
-        ? `<div class="live-line"><span class="ts">${escapeHtml(m[1])}</span>${escapeHtml(m[2])}</div>`
-        : `<div class="live-line">${escapeHtml(l)}</div>`;
-    }).join("");
+    if (typeof live[0] === "string") {
+      // 转写实时字幕（[时间戳] 文本 行）
+      liveEl.innerHTML = live.slice(-15).map(l => {
+        const m = l.match(/^\[([^\]]*)\]\s*(.*)$/);
+        return m
+          ? `<div class="live-line"><span class="ts">${escapeHtml(m[1])}</span>${escapeHtml(m[2])}</div>`
+          : `<div class="live-line">${escapeHtml(l)}</div>`;
+      }).join("");
+    } else {
+      // LLM 流式输出：思考灰显、正文正常、分段标题加粗
+      liveEl.innerHTML = live.slice(-400).map(e =>
+        e.k === "s" ? `<div class="live-sep">${escapeHtml(e.t)}</div>`
+        : e.k === "r" ? `<span class="live-r">${escapeHtml(e.t)}</span>`
+        : `<span class="live-c">${escapeHtml(e.t)}</span>`).join("");
+    }
     liveEl.scrollTop = liveEl.scrollHeight;
   } else if (live) {
     liveEl.classList.remove("hidden");
@@ -770,6 +916,225 @@ async function confirmDeleteMeeting() {
     await loadMeetings();
     alert("已移入回收站（.trash/）。如需恢复请将目录移回原位置。");
   } catch (e) { alert("删除失败：" + e.message); }
+}
+
+/* ---------- 图集（附件：图片/PDF 预览 + 拖拽保存任意文件） ---------- */
+let galleryItems = [];   // 当前会议附件列表（灯箱导航用）
+let lbIndex = 0;
+
+function fmtSize(bytes) {
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+  if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
+  return bytes + " B";
+}
+
+function renderGallery(atts) {
+  galleryItems = atts;
+  const el = $("tab-gallery");
+  el.innerHTML = `
+    <div class="gallery-toolbar">
+      <button class="btn" onclick="$('attFile').click()">＋ 添加文件</button>
+      <input type="file" id="attFile" multiple style="display:none" onchange="uploadAttachments(this.files); this.value='';">
+      <span class="att-up-progress hidden" id="attUpProgress"></span>
+      <span class="gallery-hint">图片 / PDF 点击可预览；其他文件悬停可下载。把任意文件直接拖到这里即可保存到本会议（attachments/）</span>
+    </div>` +
+    (atts.length
+      ? `<div class="gallery-grid">` + atts.map(galleryItemHtml).join("") + `</div>`
+      : `<div class="empty-tip">暂无图片/附件 —— 点「＋ 添加文件」或把文件拖到这里</div>`);
+}
+
+function galleryItemHtml(a) {
+  const nameAttr = escapeHtml(a.name);
+  const size = fmtSize(a.size || 0);
+  const del = `<button class="att-del" title="删除" data-file="${nameAttr}" onclick="deleteAttachment(event, this.dataset.file)">✕</button>`;
+  const kindLabel = a.kind === "pdf" ? "PDF" : (a.kind === "other" ? (a.name.split(".").pop() || "文件").toUpperCase() : "");
+  const viewSrc = a.preview || a.url;
+  let inner;
+  if (a.kind === "image") {
+    inner = `<img loading="lazy" src="${viewSrc}" alt="${nameAttr}" title="${nameAttr}（${size}）" onerror="attImgError(this)">`;
+  } else if (a.kind === "pdf") {
+    inner = `<div class="att-icon" title="${nameAttr}（${size}）">📄<small>PDF</small></div>`;
+  } else {
+    inner = `<div class="att-icon" title="${nameAttr}（${size}）">📎<small>${escapeHtml(kindLabel)}</small></div>`;
+  }
+  const dl = a.kind === "other" ? `<a class="att-dl" href="${a.url}" download="${nameAttr}" onclick="event.stopPropagation()">⬇ 下载</a>` : "";
+  const viewable = a.kind === "image" || a.kind === "pdf";
+  return `<div class="att-card kind-${a.kind}"` +
+    (viewable ? ` data-idx="${galleryItems.indexOf(a)}" onclick="openLightbox(+this.dataset.idx)"` : "") +
+    `>${inner}${del}${dl}<div class="att-name" title="${nameAttr}">${nameAttr}</div></div>`;
+}
+
+/* 拖拽上传（拖入高亮，松手保存） */
+function bindGalleryDrop() {
+  const el = $("tab-gallery");
+  let dragDepth = 0;
+  el.addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; el.classList.add("dragover"); });
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("dragover"); });
+  el.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; el.classList.remove("dragover"); } });
+  el.addEventListener("drop", e => {
+    e.preventDefault(); dragDepth = 0; el.classList.remove("dragover");
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadAttachments(e.dataTransfer.files);
+  });
+}
+
+function uploadAttachments(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (!currentMeeting) { alert("请先选择一个会议"); return; }
+  const fd = new FormData();
+  files.forEach(f => fd.append("file", f));
+  const bar = $("attUpProgress");
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/meeting/" + encodeURIComponent(currentMeeting) + "/attachments");
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const p = Math.round(e.loaded / e.total * 100);
+      bar.classList.remove("hidden");
+      bar.textContent = `上传中 ${p}%（${files.length} 个文件）`;
+    }
+  };
+  xhr.onload = async () => {
+    bar.classList.add("hidden");
+    if (xhr.status >= 200 && xhr.status < 300) {
+      await refreshDetail();
+    } else {
+      let msg = "上传失败";
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+      alert(msg);
+    }
+  };
+  xhr.onerror = () => { bar.classList.add("hidden"); alert("上传失败：网络错误"); };
+  xhr.send(fd);
+}
+
+async function deleteAttachment(ev, fileName) {
+  ev.stopPropagation && ev.stopPropagation();
+  if (!currentMeeting || !fileName) return;
+  if (!confirm(`删除文件「${fileName}」？\n该文件将被永久删除。`)) return;
+  try {
+    await api("/api/meeting/" + encodeURIComponent(currentMeeting) + "/attachments/delete",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, file: fileName }) });
+    closeLightbox();
+    await refreshDetail();
+  } catch (e) { alert("删除失败：" + e.message); }
+}
+
+/* ---------- 灯箱预览（图片 / PDF，左右键翻页） ---------- */
+function openLightbox(i) {
+  if (i < 0 || i >= galleryItems.length) return;
+  lbIndex = i;
+  renderLightbox();
+  $("lightbox").classList.add("open");
+}
+function closeLightbox() { $("lightbox").classList.remove("open"); }
+function lbNav(d) {
+  const n = galleryItems.length;
+  if (!n) return;
+  lbIndex = (lbIndex + d + n) % n;
+  renderLightbox();
+}
+function renderLightbox() {
+  const a = galleryItems[lbIndex];
+  if (!a) return;
+  const viewSrc = a.preview || a.url;
+  $("lbBody").innerHTML = a.kind === "pdf"
+    ? `<iframe src="${viewSrc}" title="${escapeHtml(a.name)}"></iframe>`
+    : `<img src="${viewSrc}" alt="${escapeHtml(a.name)}" onerror="attImgError(this)">`;
+  $("lbCount").textContent = galleryItems.length > 1 ? `${lbIndex + 1} / ${galleryItems.length}` : "";
+  $("lbName").textContent = a.name + "（" + fmtSize(a.size || 0) + "）";
+  const canNav = galleryItems.length > 1;
+  $("lbPrev").style.display = canNav ? "" : "none";
+  $("lbNext").style.display = canNav ? "" : "none";
+  const del = $("lbDelete");
+  del.dataset.file = a.name;
+  del.style.display = "";
+  $("lbOpen").href = viewSrc;
+}
+
+/* 图片预览加载失败（如 HEIC 未安装 pillow-heif / 文件损坏）：替换为占位提示 */
+function attImgError(img) {
+  if (img.dataset.failed) return;
+  img.dataset.failed = "1";
+  const box = document.createElement("div");
+  box.className = "att-icon";
+  box.style.cssText = "width:100%;height:100%;position:absolute;inset:0;background:#fdf3e3;cursor:default";
+  box.innerHTML = "🖼️<small>无法预览</small>";
+  img.parentElement.style.position = img.parentElement.style.position || "relative";
+  img.replaceWith(box);
+}
+
+/* ---------- 会议分析（按内容拆分部分，点击跳转） ---------- */
+let anaParts = [];
+
+function tsToSec(ts) {
+  const segs = String(ts || "").trim().split(":").map(Number);
+  if (segs.some(isNaN)) return NaN;
+  return segs.length === 3 ? segs[0] * 3600 + segs[1] * 60 + segs[2]
+    : segs.length === 2 ? segs[0] * 60 + segs[1] : segs[0];
+}
+
+function renderTranscriptLines(content) {
+  return String(content || "").split("\n").map(ln => {
+    const m = ln.match(/^\[([^\]]+)\]\s*(.*)$/);
+    if (!m) return `<div class="t-line">${escapeHtml(ln)}</div>`;
+    const sec = tsToSec(m[1].split("->")[0]);
+    return `<div class="t-line"${isNaN(sec) ? "" : ` data-start="${sec}"`}>` +
+      `<span class="t-ts">[${escapeHtml(m[1])}]</span>${escapeHtml(m[2])}</div>`;
+  }).join("");
+}
+
+function renderAnalysis(parts) {
+  anaParts = parts || [];
+  const el = $("tab-analysis");
+  el.innerHTML = `
+    <div class="gallery-toolbar">
+      <button class="btn" id="btnAnalyze">📊 ${anaParts.length ? "重新分析" : "AI 分析会议"}</button>
+      <span class="gallery-hint">AI 按内容把整场会议拆成多个部分并附简述；点击条目跳转到对应转写位置（音频同步定位）。长录音需数分钟，请耐心等待</span>
+    </div>` +
+    (anaParts.length
+      ? `<div class="ana-list">` + anaParts.map((p, i) => `
+          <div class="ana-card" data-idx="${i}">
+            <div class="ana-head">
+              <span class="ana-idx">${i + 1}</span>
+              <span class="ana-title">${escapeHtml(p.title)}</span>
+              <span class="ana-ts">[${escapeHtml(p.start)} → ${escapeHtml(p.end)}]</span>
+            </div>
+            <div class="ana-sum">${escapeHtml(p.summary)}</div>
+          </div>`).join("") + `</div>`
+      : `<div class="empty-tip">尚未分析 —— 点「AI 分析会议」，AI 将按内容把会议拆成多个部分（需已转写）</div>`);
+  $("btnAnalyze").onclick = startAnalyze;
+  el.querySelectorAll(".ana-card").forEach(c =>
+    c.addEventListener("click", () => jumpToPart(+c.dataset.idx)));
+}
+
+function startAnalyze() {
+  if (!currentMeeting) return;
+  const force = anaParts.length
+    ? confirm("重新分析该会议？（覆盖现有分析结果）") : false;
+  startTask("analyze", { meeting: currentMeeting, force }, "AI 分析会议中…");
+}
+
+/* 跳转到某部分：切到转写页 → 高亮首个该时间段的转写行 → 音频/视频定位 */
+function jumpToPart(i) {
+  const p = anaParts[i];
+  if (!p) return;
+  switchTab("transcripts");
+  const sec = tsToSec(p.start);
+  const lines = document.querySelectorAll("#tab-transcripts .t-line[data-start]");
+  let target = null;
+  for (const el of lines) {
+    if (parseFloat(el.dataset.start) >= sec - 0.5) { target = el; break; }
+    target = el;
+  }
+  if (target) {
+    document.querySelectorAll(".t-line.hl").forEach(x => x.classList.remove("hl"));
+    target.classList.add("hl");
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => target.classList.remove("hl"), 3000);
+  }
+  const media = document.querySelector("#tab-audio audio, #tab-audio video");
+  if (media && !isNaN(sec)) { try { media.currentTime = sec; } catch (e) {} }
 }
 
 /* ---------- 检索 / 问答 ---------- */
@@ -876,8 +1241,14 @@ function pickModel(m) {
 document.addEventListener("click", e => {
   if (!e.target.closest("#modelRow")) $("modelDropdown").classList.add("hidden");
 });
-// 按 Esc 自动收起模型下拉
+// 按 Esc 收起模型下拉 / 关闭灯箱；灯箱打开时 ←/→ 翻页
 document.addEventListener("keydown", e => {
+  if ($("lightbox").classList.contains("open")) {
+    if (e.key === "Escape") closeLightbox();
+    else if (e.key === "ArrowLeft") lbNav(-1);
+    else if (e.key === "ArrowRight") lbNav(1);
+    return;
+  }
   if (e.key === "Escape") $("modelDropdown").classList.add("hidden");
 });
 async function fetchModels() {
@@ -1094,6 +1465,7 @@ function escapeHtml(s) {
 /* ---------- 启动 ---------- */
 loadMeetings();
 loadKeyBadge();
+bindGalleryDrop();
 </script>
 </body>
 </html>

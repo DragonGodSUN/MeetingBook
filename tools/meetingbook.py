@@ -23,6 +23,9 @@ import re
 
 APP_NAME = "MeetingBook"
 APP_VERSION = "beta0.0.1"
+
+# DeepSeek 最大输出长度（token）：384K
+LLM_MAX_OUTPUT_TOKENS = 393216
 import sys
 import shutil
 import warnings
@@ -148,7 +151,8 @@ def get_api_key() -> str:
 
 def get_llm() -> "OpenAI":
     from openai import OpenAI
-    return OpenAI(api_key=get_api_key(), base_url=deepseek_base_url())
+    # 长文本生成（大输出预算）可能远超默认 600s，显式放宽
+    return OpenAI(api_key=get_api_key(), base_url=deepseek_base_url(), timeout=1800.0)
 
 
 def fetch_models(timeout: float = 20.0) -> list:
@@ -161,17 +165,54 @@ def fetch_models(timeout: float = 20.0) -> list:
     return models
 
 
-def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 2048) -> str:
-    """调用 DeepSeek chat 模型，返回文本。"""
+def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 2048,
+             require_complete: bool = False, on_delta=None) -> str:
+    """调用 DeepSeek chat 模型（流式），返回完整文本。
+
+    on_delta(kind, piece)：实时回调输出片段，kind 为 "reasoning"（思考流）/
+    "content"（正文流），供监视窗口展示；None 则不回调。
+    思考型模型会先输出思考内容再输出正文；思考耗尽 max_tokens 时正文可能为空
+    （finish_reason=length）。遇空内容自动加倍 max_tokens 重试一次。
+    require_complete=True 时（如转写修正，截断=丢内容），输出被截断也加倍重试，
+    最终仍截断则抛错。其余场景允许截断的内容直接返回。
+    """
     client = get_llm()
-    resp = client.chat.completions.create(
-        model=deepseek_model(),
-        messages=[{"role": "system", "content": system},
-                  {"role": "user", "content": user}],
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    return resp.choices[0].message.content or ""
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": user}]
+    content, last_err = "", None
+    for mt in (max_tokens, min(max_tokens * 2, LLM_MAX_OUTPUT_TOKENS)):
+        content, finish = "", ""
+        stream = client.chat.completions.create(
+            model=deepseek_model(),
+            messages=messages,
+            temperature=temperature,
+            max_tokens=mt,
+            stream=True,
+        )
+        for ev in stream:
+            if not ev.choices:
+                continue
+            delta = ev.choices[0].delta
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning and on_delta:
+                on_delta("reasoning", reasoning)
+            piece = delta.content or ""
+            if piece and on_delta:
+                on_delta("content", piece)
+            content += piece
+            if ev.choices[0].finish_reason:
+                finish = ev.choices[0].finish_reason
+        if content and (finish != "length" or not require_complete):
+            return content
+        if not content:
+            last_err = RuntimeError(
+                "模型返回了空内容（思考耗尽了输出上限）。请在 Web 设置中调大"
+                f"「输出长度上限」（SUMMARY_MAX_TOKENS，最大 {LLM_MAX_OUTPUT_TOKENS}）后重试。")
+        else:
+            last_err = RuntimeError(
+                f"模型输出被截断（{mt} token 不够）。请调大「输出长度上限」后重试。")
+        content = ""
+    raise last_err
 
 
 # ---------- 会议目录 ----------
@@ -603,14 +644,16 @@ SUMMARY_SYSTEM = (
 
 
 def note_name_for(transcript_file: str) -> str:
-    """由转写文件名推导纪要文件名：X-转写.txt -> X-纪要.md（去掉冗余的“-转写”）。"""
+    """由转写文件名推导纪要文件名：X-转写.txt / X-修正.txt -> X-纪要.md。"""
     base = os.path.splitext(transcript_file)[0]
-    if base.endswith("-转写"):
-        base = base[:-3]
+    for suf in ("-修正", "-转写"):
+        if base.endswith(suf):
+            base = base[: -len(suf)]
     return f"{base}-纪要.md"
 
 
-def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str:
+def summarize_transcript(txt_path: str, meeting: dict, save: bool = True,
+                         on_delta=None) -> str:
     with open(txt_path, "r", encoding="utf-8") as f:
         text = f.read()
 
@@ -636,7 +679,11 @@ def summarize_transcript(txt_path: str, meeting: dict, save: bool = True) -> str
             "以下是语音转写文本，请生成会议纪要（包含：会议概况、讨论要点、决议/结论、待办事项表）：\n\n"
             f"{text}")
     info(f"  调用 DeepSeek 生成摘要 ...")
-    summary = llm_chat(SUMMARY_SYSTEM, user, temperature=0.3, max_tokens=summary_max_tokens())
+    summary = llm_chat(SUMMARY_SYSTEM, user, temperature=0.3,
+                       max_tokens=summary_max_tokens(), on_delta=on_delta)
+    if not summary.strip():
+        # 双重保险：空纪要不落盘（否则会作为"已有纪要"挡住后续重新生成）
+        raise RuntimeError("生成的纪要为空，已放弃写入，请重试。")
 
     if save:
         notes_dir = os.path.join(meeting["path"], "notes")
@@ -667,16 +714,309 @@ def cmd_summarize(args) -> int:
         md = parse_meeting(m)
         for f in t_files:
             txt = os.path.join(t_dir, f)
+            base = os.path.splitext(f)[0]
+            if base.endswith("-转写"):
+                base = base[:-3]
+            corr = os.path.join(t_dir, f"{base}-修正.txt")
+            use_corr = os.path.isfile(corr)
+            if use_corr:
+                txt = corr
             note = os.path.join(m, "notes", note_name_for(f))
             if os.path.exists(note) and not args.force:
                 info(f"跳过（已有纪要）: {f}")
                 continue
-            info(f"摘要: {f}")
+            info(f"摘要: {f}" + ("（使用修正版）" if use_corr else ""))
             out = summarize_transcript(txt, md, save=not args.no_save)
             if out:
                 ok(f"  已生成: {display_path(out)}")
                 total += 1
     ok(f"摘要完成，共 {total} 份。")
+    return 0
+
+
+# ---------- 转写内容修正（谐音纠错 + 零散句合并） ----------
+
+CORRECT_CHUNK_CHARS = 5000  # 每次送模型的转写字符预算（分片逐段修正）
+
+CORRECT_SYSTEM = (
+    "你是专业的语音转写校对助手。用户给出会议语音转写片段，每行格式为"
+    "「[开始时间 -> 结束时间] 文本」。请完成："
+    "1) 结合上下文修正因同音字/谐音导致的识别错误（人名、机构、专业术语、数字等）；"
+    "2) 把零散破碎的短句合并为通顺、完整的长句，并补全标点；"
+    "3) 严格保持原意，不得增加、删除或臆造任何内容，不得回答、评论或总结；"
+    "4) 合并多行时，时间戳取首行的开始时间与末行的结束时间，格式保持「[开始 -> 结束]」；"
+    "5) 按时间顺序输出全部内容，每行一条，格式与输入完全一致。"
+    "只输出修正后的内容，不要输出任何其他说明。")
+
+_SEG_RE = re.compile(r"^(\[[^\]]+\])\s*(.*)$")
+
+
+def corrected_name_for(transcript_file: str) -> str:
+    """X-转写.txt -> X-修正.txt（保留原始转写，修正版另存）。"""
+    base = os.path.splitext(os.path.basename(transcript_file))[0]
+    if base.endswith("-转写"):
+        base = base[:-3]
+    return f"{base}-修正.txt"
+
+
+def _chunk_segments(segs: list[tuple[str, str]], limit: int) -> list[list[tuple[str, str]]]:
+    """按字符预算把 (时间戳, 文本) 段列表切成若干片。"""
+    chunks, buf, size = [], [], 0
+    for ts, text in segs:
+        n = len(ts) + len(text) + 1
+        if buf and size + n > limit:
+            chunks.append(buf)
+            buf, size = [], 0
+        buf.append((ts, text))
+        size += n
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
+def correct_transcript(txt_path: str, force: bool = False, progress_cb=None,
+                       delta_cb=None) -> str:
+    """用 LLM 修正转写文本（谐音纠错 + 合并零散句），写入 <名>-修正.txt。
+
+    progress_cb(done, total)：每处理完一个分片回调。
+    delta_cb(kind, piece)：当前分片的流式输出回调（kind: reasoning/content/sep）。
+    返回输出路径；内容过短返回 ""。
+    """
+    out = os.path.join(os.path.dirname(txt_path), corrected_name_for(txt_path))
+    if os.path.exists(out) and not force:
+        info(f"跳过（已有修正版）: {os.path.basename(txt_path)}")
+        return out
+    with open(txt_path, "r", encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+
+    header, segs = [], []
+    for ln in text.splitlines():
+        m = _SEG_RE.match(ln)
+        if m:
+            segs.append((m.group(1), m.group(2).strip()))
+        elif segs:
+            segs.append(("", ln.strip()))
+        else:
+            header.append(ln)
+    if sum(len(t) for _, t in segs) < 50:
+        warn(f"转写内容过短，跳过修正: {os.path.basename(txt_path)}")
+        return ""
+    meeting_dir = os.path.dirname(os.path.dirname(txt_path))
+    topic = read_meeting_name(meeting_dir) or os.path.basename(meeting_dir)
+
+    chunks = _chunk_segments(segs, CORRECT_CHUNK_CHARS)
+    total = len(chunks)
+    hdr = [l for l in header]
+    while hdr and not hdr[-1].strip():
+        hdr.pop()
+    hdr.append(f"- 修正时间: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 修正模型: {deepseek_model()}")
+    out_lines = hdr + [""]
+
+    for i, chunk in enumerate(chunks, 1):
+        if progress_cb:
+            progress_cb(i - 1, total)
+        src = "\n".join(f"{ts} {t}".rstrip() for ts, t in chunk)
+        user = (f"会议主题: {topic}\n\n以下是语音转写片段（{i}/{total}），请修正后输出：\n\n{src}")
+        if delta_cb:
+            delta_cb("sep", f"—— 修正片段 {i}/{total} ——")
+        resp = llm_chat(CORRECT_SYSTEM, user, temperature=0.1,
+                        max_tokens=summary_max_tokens(), require_complete=True,
+                        on_delta=delta_cb)
+        for ln in resp.splitlines():
+            ln = ln.strip()
+            if not ln or ln.startswith("```"):
+                continue
+            if _SEG_RE.match(ln):
+                out_lines.append(ln)
+            elif out_lines and _SEG_RE.match(out_lines[-1]):
+                out_lines[-1] = f"{out_lines[-1]} {ln}"  # 无时间戳的续行并入上一条
+            else:
+                out_lines.append(ln)
+
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(out_lines).rstrip() + "\n")
+    return out
+
+
+def _has_uncorrected_transcript(meeting: str) -> bool:
+    t_dir = os.path.join(meeting, "transcript")
+    if not os.path.isdir(t_dir):
+        return False
+    return any(f.endswith("-转写.txt")
+               and not os.path.exists(os.path.join(t_dir, corrected_name_for(f)))
+               for f in os.listdir(t_dir))
+
+
+def cmd_correct(args) -> int:
+    meetings = find_meetings()
+    if args.meeting:
+        target = pick_meeting(args.meeting)
+        if not target:
+            return 1
+        meetings = [target]
+    elif not args.all:
+        candidates = [p for p in meetings if _has_uncorrected_transcript(p)]
+        if not candidates:
+            warn("没有需要修正的转写（都已修正或仓库为空）。可加 --all 或 --meeting。")
+            return 0
+        meetings = candidates[:1]
+
+    total = 0
+    for m in meetings:
+        ensure_meeting_structure(m)
+        t_dir = os.path.join(m, "transcript")
+        if not os.path.isdir(t_dir):
+            continue
+        for f in sorted(os.listdir(t_dir)):
+            if not f.endswith("-转写.txt"):
+                continue
+            if os.path.exists(os.path.join(t_dir, corrected_name_for(f))) and not args.force:
+                info(f"跳过（已有修正版）: {f}")
+                continue
+            info(f"修正: {f}")
+
+            def prog(done, n, _f=f):
+                print(f"\r  片段 {done}/{n}", end="", flush=True)
+
+            try:
+                out = correct_transcript(os.path.join(t_dir, f), force=args.force, progress_cb=prog)
+            except Exception as e:  # noqa: BLE001
+                print()
+                err(f"  修正失败: {e}")
+                continue
+            print()
+            if out:
+                ok(f"  已修正: {display_path(out)}")
+                total += 1
+    ok(f"修正完成，共 {total} 份。")
+    return 0
+
+
+# ---------- 会议分析（按内容拆分部分 + 简述，可导航） ----------
+
+ANALYSIS_FILE = "analysis.md"
+
+ANALYSIS_SYSTEM = (
+    "你是会议内容分析助手。根据会议转写文本，把整场会议按讨论内容拆分为若干部分"
+    "（数量按实际内容定，一般 4-10 个）。只输出一个 JSON 对象："
+    '{"parts": [{"title": "部分标题", "start": "开始时间戳", "end": "结束时间戳",'
+    ' "summary": "一两句话的内容简述"}]}。'
+    "要求：按时间顺序覆盖整场会议；start/end 必须取自转写文本中真实存在的时间戳"
+    "（格式与转写行一致，如 0:05:12）；标题简短概括该部分主题；summary 用中文。"
+    "不要输出 JSON 以外的任何内容。")
+
+
+def analysis_path(folder: str) -> str:
+    return os.path.join(folder, ANALYSIS_FILE)
+
+
+def read_analysis(folder: str) -> list:
+    """读取 analysis.md，返回 [{index, title, start, end, summary}]；无文件返回 []。"""
+    p = analysis_path(folder)
+    if not os.path.isfile(p):
+        return []
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+    except OSError:
+        return []
+    parts, cur = [], None
+    for ln in text.splitlines():
+        m = re.match(r"^##\s*(\d+)\.\s*(.+?)\s*\[(.+?)\s*->\s*(.+?)\]\s*$", ln)
+        if m:
+            if cur:
+                parts.append(cur)
+            cur = {"index": int(m.group(1)), "title": m.group(2).strip(),
+                   "start": m.group(3).strip(), "end": m.group(4).strip(), "summary": ""}
+        elif cur is not None and ln.strip():
+            cur["summary"] = f"{cur['summary']} {ln.strip()}".strip()
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def write_analysis(folder: str, topic: str, parts: list) -> str:
+    lines = [f"# {topic} 内容分析", "",
+             f"- 分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M')} | "
+             f"分段: {len(parts)} | 模型: {deepseek_model()}", ""]
+    for i, p in enumerate(parts, 1):
+        lines.append(f"## {i}. {str(p.get('title', '')).strip()} "
+                     f"[{str(p.get('start', '')).strip()} -> {str(p.get('end', '')).strip()}]")
+        lines.append(str(p.get("summary", "")).strip())
+        lines.append("")
+    out = analysis_path(folder)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return out
+
+
+def analyze_meeting(folder: str, force: bool = False, on_delta=None) -> dict:
+    """AI 按内容把会议拆成多个部分，写 analysis.md，返回 {"parts": [...], "already": bool}。"""
+    p = analysis_path(folder)
+    if os.path.isfile(p) and not force:
+        return {"parts": read_analysis(folder), "already": True}
+    md = parse_meeting(folder)
+    t_dir = os.path.join(folder, "transcript")
+    files = sorted(f for f in os.listdir(t_dir) if f.endswith(".txt")) if os.path.isdir(t_dir) else []
+    # 同一录音的转写与修正版并存时只取修正版
+    chosen: dict[str, str] = {}
+    for f in files:
+        base = f[:-len(".txt")]
+        corr = base.endswith("-修正")
+        key = base[:-3] if (corr or base.endswith("-转写")) else base
+        if corr or key not in chosen:
+            chosen[key] = f
+    texts = []
+    for key in sorted(chosen):
+        with open(os.path.join(t_dir, chosen[key]), "r", encoding="utf-8", errors="ignore") as fh:
+            texts.append(fh.read().strip())
+    text = "\n\n".join(texts)
+    if len(text.strip()) < 50:
+        raise RuntimeError("该会议没有转写文本——请先转写音频，再做会议分析。")
+    if len(text) > summary_max_input_chars():
+        warn(f"转写文本过长（{len(text)} 字符），截断到 {summary_max_input_chars()} 供分析，"
+             f"末尾部分可能未被分段。")
+        text = text[:summary_max_input_chars()] + "\n…（此处为截断）"
+    user = (f"会议名称: {md['topic']}\n会议日期: {md['date']}\n\n"
+            f"以下是会议转写文本（每行以 [开始 -> 结束] 时间戳开头）：\n\n{text}")
+    info("调用 DeepSeek 分析会议结构 ...")
+    # 长文本分析思考量大，起步预算与纪要一致（8192），失败自动加倍重试
+    resp = llm_chat(ANALYSIS_SYSTEM, user, temperature=0.2,
+                    max_tokens=max(2048, summary_max_tokens()), on_delta=on_delta)
+    data = _parse_llm_json(resp)
+    parts = data.get("parts") or []
+    if not parts:
+        raise RuntimeError("AI 未返回有效的分段结果，请重试。")
+    write_analysis(folder, md["topic"], parts)
+    return {"parts": parts, "already": False}
+
+
+def cmd_analyze(args) -> int:
+    meetings = find_meetings()
+    if args.meeting:
+        target = pick_meeting(args.meeting)
+        if not target:
+            return 1
+        meetings = [target]
+    total = 0
+    for m in meetings:
+        md = parse_meeting(m)
+        if os.path.isfile(analysis_path(m)) and not args.force:
+            info(f"跳过（已有分析，--force 重析）: {md['topic']}")
+            continue
+        try:
+            r = analyze_meeting(m, force=args.force)
+        except Exception as e:  # noqa: BLE001
+            err(f"「{md['topic']}」分析失败: {e}")
+            continue
+        parts = r["parts"]
+        ok(f"已分析: {md['topic']}（{len(parts)} 个部分）→ {display_path(analysis_path(m))}")
+        for i, p in enumerate(parts, 1):
+            ts = f"{p.get('start', '')} -> {p.get('end', '')}"
+            print(f"  {c(f'{i}.', '36')} {p.get('title', '')} {c('[' + ts + ']', '90')}")
+            print(f"     {p.get('summary', '')}")
+        total += 1
+    ok(f"分析完成，共 {total} 个会议。")
     return 0
 
 
@@ -1062,10 +1402,11 @@ def main_menu() -> int:
     print("  [1] 导入音频     [2] 转写")
     print("  [3] 生成摘要     [4] 检索提问")
     print("  [5] 列出会议     [6] 配置 API Key")
+    print("  [7] 修正转写     [8] 会议分析")
     print("  [0] 退出")
     while True:
         try:
-            ch = input(c("\n选择 (0-6): ", "36")).strip()
+            ch = input(c("\n选择 (0-8): ", "36")).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -1090,6 +1431,17 @@ def main_menu() -> int:
                 continue
             cmd_summarize(SimpleNamespace(meeting=os.path.basename(m), all=False,
                                           force=False, no_save=False))
+        elif ch == "7":
+            m = meeting_choose_interactive("选择要修正转写的会议")
+            if not m:
+                continue
+            cmd_correct(SimpleNamespace(meeting=os.path.basename(m), all=False,
+                                        force=False))
+        elif ch == "8":
+            m = meeting_choose_interactive("选择要分析的会议")
+            if not m:
+                continue
+            cmd_analyze(SimpleNamespace(meeting=os.path.basename(m), force=False))
         elif ch == "4":
             q = input("提问或关键词: ").strip()
             if not q:
@@ -1156,6 +1508,15 @@ def main() -> int:
     p.add_argument("--force", action="store_true", help="覆盖已有纪要")
     p.add_argument("--no-save", action="store_true", help="只打印不保存")
 
+    p = sub.add_parser("correct", help="LLM 修正转写（谐音纠错 + 合并零散句，生成 -修正.txt）")
+    p.add_argument("--meeting", help="指定会议（日期或主题子串）")
+    p.add_argument("--all", action="store_true", help="处理所有会议")
+    p.add_argument("--force", action="store_true", help="覆盖已有修正版")
+
+    p = sub.add_parser("analyze", help="AI 分析会议：按内容拆分部分并附简述（生成 analysis.md）")
+    p.add_argument("--meeting", help="指定会议（日期或主题子串，默认全部未分析的）")
+    p.add_argument("--force", action="store_true", help="覆盖已有分析")
+
     p = sub.add_parser("search", help="关键词检索转写/纪要")
     p.add_argument("query", help="关键词")
     p.add_argument("--meeting", help="限定会议")
@@ -1186,7 +1547,8 @@ def main() -> int:
 
     handlers = {
         "import": cmd_import, "transcribe": cmd_transcribe,
-        "summarize": cmd_summarize, "search": cmd_search,
+        "summarize": cmd_summarize, "correct": cmd_correct,
+        "analyze": cmd_analyze, "search": cmd_search,
         "ask": cmd_ask, "list": cmd_list, "config": cmd_config,
         "remove": cmd_remove, "autofill": cmd_autofill,
     }

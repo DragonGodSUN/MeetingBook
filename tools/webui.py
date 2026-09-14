@@ -9,6 +9,7 @@
 依赖: pip install flask
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -46,14 +47,21 @@ def start_task(name: str, fn, *args, **kwargs) -> str:
     with _TLOCK:
         TASKS[tid] = {"id": tid, "name": name, "status": "running", "stage": "",
                       "info": None, "result": None, "error": None,
-                      "created": time.strftime("%H:%M:%S")}
+                      "created": time.strftime("%H:%M:%S"), "t0": time.time()}
 
     def worker():
         try:
             def cb(stage, info=None):
                 with _TLOCK:
-                    TASKS[tid]["stage"] = stage
-                    TASKS[tid]["info"] = info
+                    if stage == "live":
+                        # LLM 流式输出片段 info={"k": kind, "t": text}，供监视窗口
+                        buf = TASKS[tid].setdefault("live", [])
+                        buf.append(info)
+                        if len(buf) > 500:
+                            del buf[:-500]
+                    else:
+                        TASKS[tid]["stage"] = stage
+                        TASKS[tid]["info"] = info
             result = fn(cb, *args, **kwargs)
             with _TLOCK:
                 TASKS[tid]["status"] = "done"
@@ -130,6 +138,12 @@ def task_summarize(cb, meeting, force, only_file=None):
     files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
     if not files:
         raise RuntimeError("该会议没有转写文本——请先转写音频，再生成纪要。")
+    # 有修正版时优先用修正版生成纪要
+    src_for = {}
+    for f in files:
+        corr = os.path.join(t_dir, mb.corrected_name_for(f))
+        src_for[f] = (corr, os.path.basename(corr)) if os.path.isfile(corr) \
+            else (os.path.join(t_dir, f), f)
     if only_file:
         # 重新生成指定转写文件的纪要
         todo = [f for f in files if f == only_file]
@@ -141,14 +155,66 @@ def task_summarize(cb, meeting, force, only_file=None):
     if not todo:
         return {"done": [], "already": True}
     done, failed = [], []
+
+    def live(kind, piece):
+        cb("live", {"k": {"reasoning": "r", "content": "c"}.get(kind, "c"), "t": str(piece)})
+
     for i, f in enumerate(todo):
-        cb("summarizing", {"meeting": md["name"], "file": f, "index": i + 1, "total": len(todo)})
+        cb("summarizing", {"meeting": md["name"], "file": src_for[f][1],
+                           "index": i + 1, "total": len(todo)})
         try:
-            out = mb.summarize_transcript(os.path.join(t_dir, f), md, save=True)
+            out = mb.summarize_transcript(src_for[f][0], md, save=True, on_delta=live)
             done.append(os.path.basename(out))
         except Exception as e:  # noqa: BLE001
             failed.append({"file": f, "error": str(e)})
     return {"done": done, "failed": failed, "already": False}
+
+
+def task_correct(cb, meeting, force):
+    """LLM 修正转写（谐音纠错 + 合并零散句），生成 <名>-修正.txt。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    mb.ensure_meeting_structure(m)
+    t_dir = os.path.join(m, "transcript")
+    if not os.path.isdir(t_dir):
+        raise RuntimeError("该会议没有转写文本——请先转写音频。")
+    files = sorted(f for f in os.listdir(t_dir) if f.endswith("-转写.txt"))
+    todo = [f for f in files
+            if force or not os.path.exists(os.path.join(t_dir, mb.corrected_name_for(f)))]
+    if not todo:
+        return {"done": [], "skipped": len(files), "already": True}
+    mname = mb.parse_meeting(m)["topic"]
+    done = []
+
+    def live(kind, piece):
+        cb("live", {"k": {"reasoning": "r", "content": "c", "sep": "s"}.get(kind, "c"),
+                    "t": str(piece)})
+
+    for i, f in enumerate(todo):
+        cb("correcting", {"meeting": mname, "file": f, "index": i + 1, "total": len(todo)})
+        out = mb.correct_transcript(
+            os.path.join(t_dir, f), force=force,
+            progress_cb=lambda d, n, _i=i, _f=f: cb("correcting", {
+                "meeting": mname, "file": _f, "index": _i + 1, "total": len(todo),
+                "chunk": d, "chunks": n}),
+            delta_cb=live)
+        if out:
+            done.append(os.path.basename(out))
+    return {"done": done, "skipped": len(files) - len(todo)}
+
+
+def task_analyze(cb, meeting, force):
+    """AI 按内容把会议拆成多个部分并附简述，写 analysis.md。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    cb("analyzing", {"meeting": mb.parse_meeting(m)["topic"]})
+
+    def live(kind, piece):
+        cb("live", {"k": {"reasoning": "r", "content": "c"}.get(kind, "c"), "t": str(piece)})
+
+    return mb.analyze_meeting(m, force=force, on_delta=live)
 
 
 def task_ask(cb, question, meeting, top_k):
@@ -164,8 +230,13 @@ def task_ask(cb, question, meeting, top_k):
               "只能基于材料内容回答；材料不足时明确说明“材料中没有提到”。"
               "回答用中文，简洁有条理，必要时引用来源会议。")
     cb("llm", {})
+
+    def live(kind, piece):
+        if kind == "content":  # 问答窗口只看正文
+            cb("live", {"k": "c", "t": str(piece)})
+
     answer = mb.llm_chat(system, f"问题: {question}\n\n相关会议材料:\n{context}",
-                         temperature=0.2, max_tokens=1024)
+                         temperature=0.2, max_tokens=1024, on_delta=live)
     return {"answer": answer,
             "hits": [{"meeting": h["meeting"], "file": h["file"], "kind": h["kind"],
                       "score": round(h["score"], 2), "text": h["text"]} for h in hits]}
@@ -190,16 +261,62 @@ def serve_file(filepath):
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 
+THUMB_MAX_PX = 2560  # 预览图最长边（灯箱查看足够清晰，兼顾转换耗时）
+
+
+@app.get("/thumb/<path:filepath>")
+def serve_thumb(filepath):
+    """HEIC/HEIF 等浏览器不支持的图片 → JPEG 预览（磁盘缓存，原图变更自动失效）。"""
+    try:
+        full = mb.safe_join(mb.MEETINGS_ROOT, filepath)
+    except ValueError:
+        abort(404)
+    if not os.path.isfile(full) or os.path.splitext(full)[1].lower() not in CONVERT_IMAGE_EXTS:
+        abort(404)
+    try:
+        from pillow_heif import register_heif_opener
+        from PIL import Image
+    except ImportError:
+        return ("服务器缺少 pillow-heif，无法预览 HEIC 图片。请运行: pip install pillow-heif", 503)
+    st = os.stat(full)
+    cache_key = hashlib.md5(f"{os.path.realpath(full)}|{st.st_mtime_ns}|{st.st_size}".encode()).hexdigest()
+    cache_dir = os.path.join(mb.MEETINGS_ROOT, ".thumbcache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, cache_key + ".jpg")
+    if not os.path.isfile(cache_file):
+        register_heif_opener()
+        with Image.open(full) as im:
+            im = im.convert("RGB") if im.mode != "RGB" else im.copy()
+            im.thumbnail((THUMB_MAX_PX, THUMB_MAX_PX), Image.LANCZOS)
+            im.save(cache_file, "JPEG", quality=88)
+    return send_from_directory(cache_dir, cache_key + ".jpg", mimetype="image/jpeg")
+
+
 # ---------------- API ----------------
+
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+# 浏览器不能直接显示、需服务端转码的图片格式（HEIC/HEIF：华为/苹果高效压缩格式）
+CONVERT_IMAGE_EXTS = {".heic", ".heif"}
+
+
+def _file_kind(name: str) -> str:
+    ext = os.path.splitext(name)[1].lower()
+    if ext in IMAGE_EXTS or ext in CONVERT_IMAGE_EXTS:
+        return "image"
+    if ext == ".pdf":
+        return "pdf"
+    return "other"
+
 
 def meeting_detail(m: str) -> dict:
     md = mb.parse_meeting(m)
-    audio, transcripts, notes = [], [], []
+    audio, transcripts, notes, attachments = [], [], [], []
     agenda = ""
     ag = os.path.join(m, "agenda.md")
     if os.path.isfile(ag):
         agenda = _read_text(ag)
-    for sub, out in (("audio", audio), ("transcript", transcripts), ("notes", notes)):
+    for sub, out in (("audio", audio), ("transcript", transcripts),
+                     ("notes", notes), ("attachments", attachments)):
         d = os.path.join(m, sub)
         if os.path.isdir(d):
             for f in sorted(os.listdir(d)):
@@ -211,15 +328,24 @@ def meeting_detail(m: str) -> dict:
                     item["url"] = f"/files/{rel}"
                     item["size_mb"] = round(os.path.getsize(os.path.join(d, f)) / 1048576, 1)
                     item["kind"] = "video" if os.path.splitext(f)[1].lower() in mb.VIDEO_EXTS else "audio"
+                elif sub == "attachments":
+                    item["url"] = f"/files/{rel}"
+                    item["size"] = os.path.getsize(os.path.join(d, f))
+                    item["kind"] = _file_kind(f)
+                    # HEIC/HEIF 浏览器无法直接显示，走服务端转码预览
+                    if os.path.splitext(f)[1].lower() in CONVERT_IMAGE_EXTS:
+                        item["preview"] = f"/thumb/{rel}"
                 elif sub == "transcript":
                     item["content"] = _read_text(os.path.join(d, f))
+                    item["corrected"] = f.endswith("-修正.txt")
                 else:
                     item["content"] = _read_text(os.path.join(d, f))
                 out.append(item)
     return {"name": md["name"], "date": md["date"], "seq": md["seq"],
             "title": md["topic"], "props": mb.read_props(m),
             "agenda": agenda,
-            "audio": audio, "transcripts": transcripts, "notes": notes}
+            "audio": audio, "transcripts": transcripts, "notes": notes,
+            "attachments": attachments, "analysis": mb.read_analysis(m)}
 
 
 def _read_text(p: str) -> str:
@@ -238,7 +364,7 @@ def api_meetings():
         items.append({"name": d["name"], "date": d["date"], "seq": d["seq"],
                       "title": d["title"],
                       "audio": len(d["audio"]), "transcripts": len(d["transcripts"]),
-                      "notes": len(d["notes"])})
+                      "notes": len(d["notes"]), "attachments": len(d["attachments"])})
     return jsonify(items)
 
 
@@ -344,6 +470,62 @@ def _sanitize_filename(name: str) -> str:
     return name or "upload"
 
 
+def _unique_name(d: str, name: str) -> str:
+    """目录内重名时追加序号：photo.jpg -> photo (1).jpg"""
+    if not os.path.exists(os.path.join(d, name)):
+        return name
+    base, ext = os.path.splitext(name)
+    i = 1
+    while os.path.exists(os.path.join(d, f"{base} ({i}){ext}")):
+        i += 1
+    return f"{base} ({i}){ext}"
+
+
+@app.post("/api/meeting/<name>/attachments")
+def api_attachment_upload(name):
+    """上传一个或多个附件（图片/PDF/任意文件），保存到会议 attachments/ 目录。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    files = [f for f in request.files.getlist("file") if f.filename]
+    if not files:
+        return jsonify({"error": "未选择文件"}), 400
+    adir = os.path.join(m, "attachments")
+    os.makedirs(adir, exist_ok=True)
+    saved = []
+    try:
+        for f in files:
+            fname = _unique_name(adir, _sanitize_filename(f.filename))
+            f.save(os.path.join(adir, fname))
+            saved.append(fname)
+    except OSError as e:
+        return jsonify({"error": f"保存失败: {e}", "saved": saved}), 500
+    return jsonify({"ok": True, "saved": saved})
+
+
+@app.post("/api/meeting/<name>/attachments/delete")
+def api_attachment_delete(name):
+    """删除单个附件文件。需 confirm=true。"""
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({"error": "缺少确认标记 confirm=true"}), 400
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    try:
+        full = mb.safe_join(m, "attachments", fname)
+    except ValueError:
+        return jsonify({"error": "非法文件名"}), 400
+    if not os.path.isfile(full):
+        return jsonify({"error": "文件不存在"}), 404
+    try:
+        os.remove(full)
+    except OSError as e:
+        return jsonify({"error": f"删除失败: {e}"}), 500
+    return jsonify({"ok": True})
+
+
 @app.post("/api/import")
 def api_import():
     f = request.files.get("file")
@@ -378,6 +560,16 @@ def api_transcribe():
     return jsonify({"task": tid})
 
 
+@app.post("/api/correct")
+def api_correct():
+    data = request.get_json(force=True)
+    meeting = data.get("meeting", "")
+    if not meeting:
+        return jsonify({"error": "缺少会议"}), 400
+    tid = start_task("correct", task_correct, meeting, bool(data.get("force")))
+    return jsonify({"task": tid})
+
+
 @app.post("/api/summarize")
 def api_summarize():
     data = request.get_json(force=True)
@@ -386,6 +578,16 @@ def api_summarize():
         return jsonify({"error": "缺少会议"}), 400
     only_file = data.get("file") or None
     tid = start_task("summarize", task_summarize, meeting, bool(data.get("force")), only_file)
+    return jsonify({"task": tid})
+
+
+@app.post("/api/analyze")
+def api_analyze():
+    data = request.get_json(force=True)
+    meeting = data.get("meeting", "")
+    if not meeting:
+        return jsonify({"error": "缺少会议"}), 400
+    tid = start_task("analyze", task_analyze, meeting, bool(data.get("force")))
     return jsonify({"task": tid})
 
 
@@ -430,6 +632,8 @@ def api_autofill():
 def api_task(tid):
     with _TLOCK:
         t = TASKS.get(tid)
+        if t:
+            t = {**t, "elapsed": round(time.time() - t.get("t0", time.time()))}
     if not t:
         return jsonify({"error": "任务不存在"}), 404
     return jsonify(t)
@@ -502,6 +706,8 @@ def api_config_set():
                 value = str(int(data.get("value", "")))
             except ValueError:
                 return jsonify({"error": "必须是正整数"}), 400
+            if key == "SUMMARY_MAX_TOKENS" and int(value) > mb.LLM_MAX_OUTPUT_TOKENS:
+                return jsonify({"error": f"输出上限最大 {mb.LLM_MAX_OUTPUT_TOKENS}（DeepSeek 384K）"}), 400
         else:
             # 字符串类设置（模型名 / API 地址）
             value = str(data.get("value", "")).strip().strip('"').strip("'")
