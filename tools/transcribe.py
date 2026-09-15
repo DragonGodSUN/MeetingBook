@@ -128,6 +128,7 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
         language=language,
         vad_filter=vad,
         beam_size=5,
+        condition_on_previous_text=False,
     )
     detected_lang = getattr(info, "language", "?")
     print(f"      检测语言: {detected_lang} (置信度 {getattr(info, 'language_probability', 0):.2f})")
@@ -136,12 +137,25 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
     print(f"[3/3] 写出 {out_path}")
     n_seg = 0
     duration = getattr(info, "duration", 0) or 0
+    # 抗幻觉：噪声/静音会让 Whisper 陷入超短片段重复循环（如整场输出 "so"），
+    # 连续重复的超短片段从第 2 条起直接丢弃；condition_on_previous_text=False
+    # 防止上一条幻觉污染后续识别。
+    last_key, dup_run = None, 0
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(f"# {base}\n")
         f.write(f"- 语言: {detected_lang} | 音频时长: {fmt_ts(duration)}\n")
         f.write(f"- 转写时间: {time.strftime('%Y-%m-%d %H:%M')} | 模型: {model_size}\n\n")
         for seg in segments:
-            f.write(f"[{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}] {seg.text.strip()}\n")
+            text = seg.text.strip()
+            key = text.lower().strip(".,!?;:，。！？；：、 ")
+            if key and len(key) <= 6:
+                if key == last_key:
+                    dup_run += 1
+                    continue
+                last_key, dup_run = key, 0
+            else:
+                last_key, dup_run = None, 0
+            f.write(f"[{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}] {text}\n")
             n_seg += 1
             if n_seg % 20 == 0:
                 print(f"      已转写 {n_seg} 段 ...")
@@ -150,7 +164,7 @@ def transcribe_audio(audio: str, model_size: str = "medium", language: str | Non
             progress_cb("transcribing", {
                 "n": n_seg,
                 "pct": pct,
-                "text": seg.text.strip()[:120],
+                "text": text[:120],
                 "ts": f"{fmt_ts(seg.start)} -> {fmt_ts(seg.end)}",
             })
 
