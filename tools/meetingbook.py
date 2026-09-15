@@ -165,10 +165,13 @@ def fetch_models(timeout: float = 20.0) -> list:
     return models
 
 
-def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 2048,
-             require_complete: bool = False, on_delta=None) -> str:
+def llm_chat(system: str, user, temperature: float = 0.3, max_tokens: int = 2048,
+             require_complete: bool = False, on_delta=None, history: list | None = None) -> str:
     """调用 DeepSeek chat 模型（流式），返回完整文本。
 
+    user: 提问文本（str），或多模态 content 数组（如
+    [{"type": "text", "text": ...}, {"type": "image_url", "image_url": {"url": ...}}]）。
+    history: 多轮对话历史 [{"role": "user"|"assistant", "content": str}, ...]，纯文本。
     on_delta(kind, piece)：实时回调输出片段，kind 为 "reasoning"（思考流）/
     "content"（正文流），供监视窗口展示；None 则不回调。
     思考型模型会先输出思考内容再输出正文；思考耗尽 max_tokens 时正文可能为空
@@ -177,8 +180,10 @@ def llm_chat(system: str, user: str, temperature: float = 0.3, max_tokens: int =
     最终仍截断则抛错。其余场景允许截断的内容直接返回。
     """
     client = get_llm()
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": user}]
+    messages = [{"role": "system", "content": system}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user})
     content, last_err = "", None
     for mt in (max_tokens, min(max_tokens * 2, LLM_MAX_OUTPUT_TOKENS)):
         content, finish = "", ""

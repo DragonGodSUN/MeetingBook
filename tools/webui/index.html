@@ -174,6 +174,105 @@
   #lbNext { right: 18px; }
   #lbClose { position: absolute; top: 16px; right: 20px; font-size: 16px; padding: 6px 12px; }
 
+  /* ---- 灯箱 AI 看图问答悬浮窗 ---- */
+  .ai-float {
+    position: absolute; top: 64px; right: 76px; width: 360px; max-width: 90vw;
+    height: min(560px, 72vh); display: flex; flex-direction: column;
+    background: #1c2230; border: 1px solid rgba(255,255,255,.18); border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.55); z-index: 20; overflow: hidden;
+    text-align: left;
+  }
+  .ai-float.hidden { display: none; }
+  .ai-float-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: rgba(255,255,255,.08); color: #e5e9f5;
+    font-size: 13px; font-weight: 600; cursor: move; user-select: none; flex: none;
+  }
+  .ai-float-close { border: none; background: none; color: #cfd6e6; cursor: pointer; font-size: 14px; padding: 0 2px; }
+  .ai-float-close:hover { color: #fff; }
+  .ai-float-msgs { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .ai-msg {
+    max-width: 88%; padding: 8px 10px; border-radius: 10px; font-size: 13px;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .ai-msg.user { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+  .ai-msg.bot { align-self: flex-start; background: rgba(255,255,255,.12); color: #e5e9f5; border-bottom-left-radius: 4px; }
+  .ai-msg.err { align-self: stretch; max-width: 100%; background: rgba(220,60,60,.28); color: #ffd7d7; }
+  .ai-msg.status { align-self: center; max-width: 100%; background: none; color: #9aa5bd; font-size: 12px; padding: 2px; }
+  /* 暗色面板内的 Markdown（AI 回答气泡 / 留言板共用 .md-body.md-dark 适配置色） */
+  .md-body.md-dark { overflow-x: auto; color: #e5e9f5; max-width: 100%; }
+  .md-body.md-dark h1, .md-body.md-dark h2, .md-body.md-dark h3, .md-body.md-dark h4 {
+    color: #f0f3fa; border-bottom-color: rgba(255,255,255,.18);
+  }
+  .md-body.md-dark h2 { border-left-color: var(--primary); }
+  .md-body.md-dark p:first-child, .md-body.md-dark h1:first-child,
+  .md-body.md-dark h2:first-child, .md-body.md-dark h3:first-child { margin-top: 0; }
+  .md-body.md-dark p:last-child, .md-body.md-dark ul:last-child, .md-body.md-dark ol:last-child,
+  .md-body.md-dark table:last-child, .md-body.md-dark pre:last-child { margin-bottom: 0; }
+  .md-body.md-dark table { background: transparent; }
+  .md-body.md-dark th, .md-body.md-dark td {
+    border-color: rgba(255,255,255,.25); background: transparent; color: #e5e9f5;
+  }
+  .md-body.md-dark th { background: rgba(255,255,255,.10); }
+  .md-body.md-dark tbody tr:nth-child(even) td { background: rgba(255,255,255,.05); }
+  .md-body.md-dark tbody tr:hover td { background: rgba(255,255,255,.09); }
+  .md-body.md-dark blockquote {
+    border-left-color: var(--primary); background: rgba(255,255,255,.08); color: #c9d2e6;
+  }
+  .md-body.md-dark code { background: rgba(255,255,255,.14); color: #ffd7a0; }
+  .md-body.md-dark pre { background: #10141d; color: #e6e9f0; }
+  .md-body.md-dark pre code { background: none; color: inherit; }
+  .md-body.md-dark a { color: #9db8ff; }
+  .md-body.md-dark hr { border-top-color: rgba(255,255,255,.18); }
+  .md-body.md-dark .todo-done { color: #8b95ad; }
+  .ai-float-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid rgba(255,255,255,.12); flex: none; }
+  .ai-float-input input {
+    flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08);
+    color: #fff; font-size: 13px; outline: none;
+  }
+  .ai-float-input input:focus { border-color: var(--primary); }
+  .ai-float-input input::placeholder { color: #8b95ad; }
+  .ai-float-input button:disabled { opacity: .5; cursor: default; }
+  .ai-sess-bar { display: flex; align-items: center; gap: 5px; padding: 8px 10px 0; flex: none; }
+  .ai-sess-bar select {
+    flex: 1; min-width: 0; padding: 4px 6px; border-radius: 6px; font-size: 12px;
+    border: 1px solid rgba(255,255,255,.2); background: #242b3d; color: #e5e9f5; outline: none;
+  }
+  .ai-sess-btn {
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #cfd6e6;
+    border-radius: 6px; cursor: pointer; font-size: 12px; width: 26px; height: 24px;
+    display: flex; align-items: center; justify-content: center; padding: 0; flex: none;
+  }
+  .ai-sess-btn:hover { background: rgba(255,255,255,.18); color: #fff; }
+  .lb-note { background: rgba(255,255,255,.10); border-radius: 10px; padding: 8px 10px; font-size: 13px; color: #e5e9f5; }
+  .lb-note-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .lb-note-time { font-size: 11px; color: #9aa5bd; font-family: Consolas, monospace; flex: 1; min-width: 60px; }
+  .lb-note-del { border: none; background: none; color: #8b95ad; cursor: pointer; font-size: 12px; padding: 0 2px; }
+  .lb-note-del:hover { color: #ff8080; }
+  .lb-note-text { white-space: pre-wrap; word-break: break-word; line-height: 1.6; margin-top: 4px; }
+  .lb-note-text.md-body { white-space: normal; }
+  .lb-note-fold {
+    border: none; background: none; color: #9aa5bd; cursor: pointer;
+    font-size: 10px; width: 16px; padding: 0; flex: none;
+  }
+  .lb-note-fold:hover { color: #fff; }
+  .lb-note.collapsed { opacity: .82; }
+  .lb-note.collapsed .lb-note-text { display: none; }
+  .lb-note-tag {
+    border: 1px solid rgba(122,146,255,.45); background: rgba(99,102,241,.16); color: #b9c6ff;
+    border-radius: 999px; font-size: 11px; padding: 0 8px; line-height: 18px; cursor: pointer; flex: none;
+  }
+  .lb-note-tag:hover { background: rgba(99,102,241,.35); }
+  .lb-note-tag.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .lb-notes-filterbar {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa5bd;
+    padding: 0 2px 6px;
+  }
+  .lb-notes-filterbar button { border: none; background: none; color: #9db8ff; cursor: pointer; font-size: 12px; padding: 0; }
+  .lb-notes-filterbar button:hover { text-decoration: underline; }
+  .lb-empty { color: #9aa5bd; font-size: 12px; text-align: center; padding: 16px 0; }
+
   /* ---- 会议分析 ---- */
   .ana-card {
     border: 1px solid var(--border); border-left: 3px solid var(--primary);
@@ -358,10 +457,44 @@
   <div class="lb-bar">
     <span id="lbCount"></span>
     <span class="lb-name" id="lbName"></span>
+    <button class="lb-btn" id="lbAskBtn" onclick="toggleLbAsk()" style="display:none" title="AI 看图问答">🤖 AI 问答</button>
+    <button class="lb-btn" id="lbNoteBtn" onclick="toggleLbNotes()" style="display:none" title="图片留言板">📝 留言板</button>
     <button class="lb-btn" id="lbDelete" onclick="deleteAttachment(null, this.dataset.file)">🗑 删除</button>
     <a class="lb-btn" id="lbOpen" href="#" target="_blank" rel="noopener">新窗口打开</a>
   </div>
   <button class="lb-nav" id="lbNext" onclick="lbNav(1)">›</button>
+  <div class="ai-float hidden" id="lbAsk">
+    <div class="ai-float-head" id="lbAskHead">
+      <span>🤖 AI 看图问答</span>
+      <button class="ai-float-close" onclick="toggleLbAsk(false)" title="收起">✕</button>
+    </div>
+    <div class="ai-sess-bar">
+      <select id="lbAskSession" onchange="switchLbAskSession(this.value)" title="选择会话（按最近更新排序）"></select>
+      <button class="ai-sess-btn" onclick="newLbAskSession()" title="新建会话">＋</button>
+      <button class="ai-sess-btn" onclick="renameLbAskSession()" title="重命名当前会话">✎</button>
+      <button class="ai-sess-btn" onclick="clearLbAskSession()" title="清空当前会话消息">🧹</button>
+      <button class="ai-sess-btn" onclick="deleteLbAskSession()" title="删除当前会话">🗑</button>
+    </div>
+    <div class="ai-float-msgs" id="lbAskMsgs"></div>
+    <div class="ai-float-input">
+      <input id="lbAskInput" placeholder="询问这张图片，如：图里写了什么？" onkeydown="if(event.key==='Enter')sendLbAsk()">
+      <button class="lb-btn" id="lbAskSend" onclick="sendLbAsk()">发送</button>
+    </div>
+  </div>
+  <div class="ai-float hidden" id="lbNotes" style="left:76px; right:auto; top:64px">
+    <div class="ai-float-head" id="lbNotesHead">
+      <span>📝 图片留言板</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <button class="ai-float-close" id="lbNotesFoldAll" onclick="foldAllLbNotes()" title="全部收起/展开" style="font-size:13px">▾</button>
+        <button class="ai-float-close" onclick="toggleLbNotes(false)" title="收起">✕</button>
+      </span>
+    </div>
+    <div class="ai-float-msgs" id="lbNotesList"></div>
+    <div class="ai-float-input">
+      <input id="lbNoteInput" placeholder="为这张图片记一条信息…" onkeydown="if(event.key==='Enter')addLbNote()">
+      <button class="lb-btn" id="lbNoteSend" onclick="addLbNote()">添加</button>
+    </div>
+  </div>
 </div>
 
 <!-- 导入模态框 -->
@@ -1028,7 +1161,11 @@ function openLightbox(i) {
   renderLightbox();
   $("lightbox").classList.add("open");
 }
-function closeLightbox() { $("lightbox").classList.remove("open"); }
+function closeLightbox() {
+  $("lightbox").classList.remove("open");
+  toggleLbAsk(false);
+  toggleLbNotes(false);
+}
 function lbNav(d) {
   const n = galleryItems.length;
   if (!n) return;
@@ -1051,6 +1188,14 @@ function renderLightbox() {
   del.dataset.file = a.name;
   del.style.display = "";
   $("lbOpen").href = viewSrc;
+  // AI 看图问答 / 留言板：仅图片可用；换图自动重置对话、重载留言
+  $("lbAskBtn").style.display = a.kind === "image" ? "" : "none";
+  $("lbNoteBtn").style.display = a.kind === "image" ? "" : "none";
+  if (a.kind !== "image") { toggleLbAsk(false); toggleLbNotes(false); }
+  else {
+    resetLbAskIfNeeded(a.name);
+    if (!$("lbNotes").classList.contains("hidden") && lbNotesFile !== a.name) loadLbNotes();
+  }
 }
 
 /* 图片预览加载失败（如 HEIC 未安装 pillow-heif / 文件损坏）：替换为占位提示 */
@@ -1063,6 +1208,371 @@ function attImgError(img) {
   box.innerHTML = "🖼️<small>无法预览</small>";
   img.parentElement.style.position = img.parentElement.style.position || "relative";
   img.replaceWith(box);
+}
+
+/* ---------- 灯箱 AI 看图问答（悬浮窗，多会话持久化，流式显示，md 渲染） ---------- */
+let lbAskHistory = [];      // 当前会话消息 [{role, content}]
+let lbAskFile = "";         // 当前对话所属图片（换图自动重置）
+let lbAskBusy = false;
+let lbAskSessions = [];     // 当前图片的会话列表（最近更新在前）
+let lbAskSessionId = null;  // 当前选中会话 id（null = 新会话）
+let lbAskLoadedFor = null;  // 已加载会话列表的图片名
+
+function toggleLbAsk(force) {
+  const p = $("lbAsk");
+  const show = typeof force === "boolean" ? force : p.classList.contains("hidden");
+  p.classList.toggle("hidden", !show);
+  if (show) {
+    if (lbAskLoadedFor !== lbAskFile) loadLbAskSessions();
+    $("lbAskInput").focus(); scrollLbAsk();
+  }
+}
+function resetLbAskIfNeeded(file) {
+  if (lbAskFile !== file) {
+    lbAskFile = file;
+    lbAskLoadedFor = null;
+    lbAskSessionId = null;
+    lbAskSessions = [];
+    lbAskHistory = [];
+    $("lbAskMsgs").innerHTML = "";
+    renderLbAskSessionBar();
+  }
+}
+function scrollLbAsk() { const el = $("lbAskMsgs"); el.scrollTop = el.scrollHeight; }
+function addLbMsg(cls, text, md) {
+  const div = document.createElement("div");
+  div.className = "ai-msg " + cls;
+  if (md) { div.classList.add("md-body", "md-dark"); div.innerHTML = renderMd(text); }
+  else div.textContent = text;
+  $("lbAskMsgs").appendChild(div);
+  scrollLbAsk();
+  return div;
+}
+function setLbStatus(text) {
+  let el = $("lbAskStatus");
+  if (!text) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "lbAskStatus";
+    el.className = "ai-msg status";
+    $("lbAskMsgs").appendChild(el);
+  }
+  el.textContent = text;
+  scrollLbAsk();
+}
+
+/* ---- 会话管理 ---- */
+function renderLbAskSessionBar() {
+  const sel = $("lbAskSession");
+  sel.innerHTML = lbAskSessions.length
+    ? lbAskSessions.map(s =>
+        `<option value="${escapeHtml(s.id)}"${s.id === lbAskSessionId ? " selected" : ""}>${escapeHtml(s.title || "未命名会话")}</option>`).join("")
+    : '<option value="">新会话（发送后自动创建）</option>';
+}
+
+async function loadLbAskSessions() {
+  const a = galleryItems[lbIndex];
+  if (!a || !currentMeeting) return;
+  lbAskLoadedFor = a.name;
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-chats?file=${encodeURIComponent(a.name)}`);
+    if (lbAskLoadedFor !== a.name) return;  // 期间已切换图片
+    lbAskSessions = d.sessions || [];
+  } catch (e) { lbAskSessions = []; }
+  if (!lbAskSessions.find(s => s.id === lbAskSessionId)) {
+    lbAskSessionId = lbAskSessions.length ? lbAskSessions[0].id : null;  // 默认选最近更新的
+  }
+  renderLbAskSessionBar();
+  loadLbAskMessages();
+}
+
+function loadLbAskMessages() {
+  const sess = lbAskSessions.find(s => s.id === lbAskSessionId);
+  lbAskHistory = sess ? (sess.messages || []) : [];
+  const box = $("lbAskMsgs");
+  box.innerHTML = "";
+  lbAskHistory.forEach(m =>
+    addLbMsg(m.role === "user" ? "user" : "bot", m.content || "", m.role !== "user"));
+  scrollLbAsk();
+}
+
+function switchLbAskSession(v) {
+  lbAskSessionId = v || null;
+  loadLbAskMessages();
+}
+
+async function newLbAskSession() {
+  const a = galleryItems[lbIndex];
+  if (!a || !currentMeeting || lbAskBusy) return;
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-chats/new`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: a.name }) });
+    lbAskSessionId = d.session.id;
+    await loadLbAskSessions();
+  } catch (e) { alert("新建会话失败: " + e.message); }
+}
+
+async function renameLbAskSession() {
+  const sess = lbAskSessions.find(s => s.id === lbAskSessionId);
+  if (!sess) { alert("还没有会话 —— 先发送一条消息自动创建"); return; }
+  const name = prompt("重命名会话：", sess.title || "");
+  if (name === null) return;
+  const t = name.trim();
+  if (!t) return;
+  try {
+    await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-chats/rename`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: galleryItems[lbIndex].name, id: sess.id, title: t }) });
+    sess.title = t;
+    renderLbAskSessionBar();
+  } catch (e) { alert("重命名失败: " + e.message); }
+}
+
+async function clearLbAskSession() {
+  const sess = lbAskSessions.find(s => s.id === lbAskSessionId);
+  if (!sess) { alert("还没有会话 —— 先发送一条消息自动创建"); return; }
+  if (lbAskBusy) return;
+  if (!confirm(`清空会话「${sess.title || "未命名会话"}」的全部对话消息？\n会话本身保留，可继续提问。`)) return;
+  try {
+    await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-chats/clear`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: galleryItems[lbIndex].name, id: sess.id }) });
+    await loadLbAskSessions();
+  } catch (e) { alert("清空失败: " + e.message); }
+}
+
+async function deleteLbAskSession() {
+  const sess = lbAskSessions.find(s => s.id === lbAskSessionId);
+  if (!sess) { alert("还没有会话 —— 先发送一条消息自动创建"); return; }
+  if (!confirm(`删除会话「${sess.title || "未命名会话"}」及其全部对话？`)) return;
+  try {
+    await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-chats/delete`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, file: galleryItems[lbIndex].name, id: sess.id }) });
+    lbAskSessionId = null;
+    await loadLbAskSessions();
+  } catch (e) { alert("删除失败: " + e.message); }
+}
+
+async function sendLbAsk() {
+  if (lbAskBusy || !currentMeeting) return;
+  const a = galleryItems[lbIndex];
+  if (!a || a.kind !== "image") return;
+  const input = $("lbAskInput");
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = "";
+  addLbMsg("user", q);
+  setLbStatus("读取图片…");
+  lbAskBusy = true;
+  $("lbAskSend").disabled = true;
+  const stream = addLbMsg("bot", "");
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachments/ask`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: a.name, question: q, session: lbAskSessionId }) });
+    await pollVisionAsk(d.task, stream);
+  } catch (e) {
+    stream.className = "ai-msg err";
+    stream.textContent = "请求失败: " + e.message;
+  }
+  lbAskBusy = false;
+  $("lbAskSend").disabled = false;
+  setLbStatus(null);
+  scrollLbAsk();
+}
+
+function pollVisionAsk(tid, stream) {
+  return new Promise(resolve => {
+    const t = setInterval(async () => {
+      try {
+        const d = await api("/api/task/" + tid);
+        if (d.status === "done") {
+          clearInterval(t);
+          const sess = d.result && d.result.session;
+          if (sess) lbAskSessionId = sess.id;
+          await loadLbAskSessions();  // 刷新会话时序并按服务端数据重绘消息
+          if (d.result && !d.result.answer) {
+            stream = addLbMsg("bot", "（模型未返回内容）");
+          }
+          resolve();
+        } else if (d.status === "error") {
+          clearInterval(t);
+          stream.className = "ai-msg err";
+          stream.textContent = d.error || "AI 问答失败";
+          resolve();
+        } else {
+          // 流式正文：live 缓冲里的内容片段累计拼接
+          if (Array.isArray(d.live) && d.live.length) {
+            const shown = d.live.filter(e => e.k === "c").map(e => e.t).join("");
+            if (shown) stream.textContent = shown;
+          }
+          setLbStatus(d.stage === "preparing" ? "读取图片中…"
+            : d.stage === "llm" ? "AI 思考中…" : "");
+          scrollLbAsk();
+        }
+      } catch (e) {
+        clearInterval(t);
+        stream.className = "ai-msg err";
+        stream.textContent = "任务异常: " + e.message;
+        resolve();
+      }
+    }, 800);
+  });
+}
+
+/* 悬浮窗拖拽（按住标题栏移动） */
+function makeFloatDraggable(headId, panelId) {
+  const head = $(headId), panel = $(panelId);
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  head.addEventListener("mousedown", e => {
+    if (e.target.tagName === "BUTTON") return;
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    const r = panel.getBoundingClientRect();
+    ox = r.left; oy = r.top;
+    panel.style.right = "auto";
+    panel.style.left = r.left + "px";
+    panel.style.top = r.top + "px";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const nx = Math.min(Math.max(ox + e.clientX - sx, 8), window.innerWidth - panel.offsetWidth - 8);
+    const ny = Math.min(Math.max(oy + e.clientY - sy, 8), window.innerHeight - panel.offsetHeight - 8);
+    panel.style.left = nx + "px";
+    panel.style.top = ny + "px";
+  });
+  document.addEventListener("mouseup", () => dragging = false);
+}
+makeFloatDraggable("lbAskHead", "lbAsk");
+makeFloatDraggable("lbNotesHead", "lbNotes");
+
+/* ---------- 灯箱图片留言板（悬浮窗，多条留言持久化到 .comments/，支持 md/收起/#标签） ---------- */
+let lbNotesFile = "";   // 当前留言板所属图片
+let lbNotesData = [];   // 当前图片全部留言
+let lbNotesTag = null;  // 当前筛选标签（null = 全部）
+
+function toggleLbNotes(force) {
+  const p = $("lbNotes");
+  const show = typeof force === "boolean" ? force : p.classList.contains("hidden");
+  p.classList.toggle("hidden", !show);
+  if (show) loadLbNotes();
+}
+
+async function loadLbNotes() {
+  const a = galleryItems[lbIndex];
+  if (!a || !currentMeeting) return;
+  lbNotesFile = a.name;
+  lbNotesTag = null;  // 换图重置筛选
+  const list = $("lbNotesList");
+  list.innerHTML = '<div class="lb-empty">加载中…</div>';
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-comments?file=${encodeURIComponent(a.name)}`);
+    if (lbNotesFile !== a.name) return;  // 期间已切换图片
+    renderLbNotes(d.comments || []);
+  } catch (e) {
+    list.innerHTML = `<div class="lb-empty">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderLbNotes(comments) {
+  lbNotesData = comments || [];
+  const list = $("lbNotesList");
+  const allFolded = lbNotesData.length > 0 && lbNotesData.every(c => c.collapsed);
+  $("lbNotesFoldAll").textContent = allFolded ? "▸" : "▾";
+  const shown = lbNotesTag
+    ? lbNotesData.filter(c => (c.tags || []).includes(lbNotesTag))
+    : lbNotesData;
+  let html = "";
+  if (lbNotesTag) {
+    html += `<div class="lb-notes-filterbar"><span>筛选：#${escapeHtml(lbNotesTag)}（${shown.length} 条）</span>` +
+      `<button onclick="filterLbNotes(null)">清除筛选</button></div>`;
+  }
+  if (!lbNotesData.length) {
+    html += '<div class="lb-empty">暂无留言 —— 在下方输入并点「添加」，可用 #标签 标记</div>';
+  } else if (!shown.length) {
+    html += `<div class="lb-empty">没有带 #${escapeHtml(lbNotesTag)} 标签的留言</div>`;
+  } else {
+    html += shown.map(lbNoteHtml).join("");
+  }
+  list.innerHTML = html;
+  if (lbNotesTag) list.scrollTop = 0; else list.scrollTop = list.scrollHeight;
+}
+
+function lbNoteHtml(c) {
+  const tags = (c.tags || []).map(t =>
+    `<button class="lb-note-tag${t === lbNotesTag ? " active" : ""}" data-tag="${escapeHtml(t)}" onclick="filterLbNotes(this.dataset.tag)" title="按此标签筛选">#${escapeHtml(t)}</button>`
+  ).join("");
+  return `<div class="lb-note${c.collapsed ? " collapsed" : ""}">
+    <div class="lb-note-head">
+      <button class="lb-note-fold" data-id="${escapeHtml(c.id)}" onclick="toggleLbNoteFold(this.dataset.id)" title="${c.collapsed ? "展开" : "收起"}">${c.collapsed ? "▸" : "▾"}</button>
+      <span class="lb-note-time">${escapeHtml(c.time)}</span>
+      ${tags}
+      <button class="lb-note-del" data-id="${escapeHtml(c.id)}" onclick="deleteLbNote(this.dataset.id)" title="删除这条留言">✕</button>
+    </div>
+    <div class="lb-note-text md-body md-dark">${renderMd(c.text)}</div>
+  </div>`;
+}
+
+async function toggleLbNoteFold(id) {
+  const c = lbNotesData.find(x => String(x.id) === String(id));
+  const a = galleryItems[lbIndex];
+  if (!c || !a || !currentMeeting) return;
+  const target = !c.collapsed;
+  c.collapsed = target;  // 乐观更新，失败回滚
+  renderLbNotes(lbNotesData);
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-comments/update`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: a.name, id: c.id, collapsed: target }) });
+    lbNotesData = d.comments || lbNotesData;
+  } catch (e) { c.collapsed = !target; }
+  renderLbNotes(lbNotesData);
+}
+
+async function foldAllLbNotes() {
+  const a = galleryItems[lbIndex];
+  if (!a || !currentMeeting || !lbNotesData.length) return;
+  const target = !lbNotesData.every(c => c.collapsed);
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-comments/update`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: a.name, collapsed: target, all: true }) });
+    renderLbNotes(d.comments || []);
+  } catch (e) { alert("操作失败: " + e.message); }
+}
+
+function filterLbNotes(tag) {
+  lbNotesTag = tag || null;
+  renderLbNotes(lbNotesData);
+}
+
+async function addLbNote() {
+  const a = galleryItems[lbIndex];
+  if (!a || a.kind !== "image" || !currentMeeting) return;
+  const input = $("lbNoteInput");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-comments/add`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: a.name, text }) });
+    renderLbNotes(d.comments || []);
+  } catch (e) { alert("留言失败: " + e.message); }
+}
+
+async function deleteLbNote(id) {
+  const a = galleryItems[lbIndex];
+  if (!a || !currentMeeting || !id) return;
+  if (!confirm("删除这条留言？")) return;
+  try {
+    const d = await api(`/api/meeting/${encodeURIComponent(currentMeeting)}/attachment-comments/delete`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, file: a.name, id }) });
+    renderLbNotes(d.comments || []);
+  } catch (e) { alert("删除失败: " + e.message); }
 }
 
 /* ---------- 会议分析（按内容拆分部分，点击跳转） ---------- */
@@ -1242,12 +1752,18 @@ function pickModel(m) {
 document.addEventListener("click", e => {
   if (!e.target.closest("#modelRow")) $("modelDropdown").classList.add("hidden");
 });
-// 按 Esc 收起模型下拉 / 关闭灯箱；灯箱打开时 ←/→ 翻页
+// 按 Esc 收起模型下拉 / 关闭灯箱或 AI 问答窗；灯箱打开时 ←/→ 翻页（输入框内除外）
 document.addEventListener("keydown", e => {
   if ($("lightbox").classList.contains("open")) {
-    if (e.key === "Escape") closeLightbox();
-    else if (e.key === "ArrowLeft") lbNav(-1);
-    else if (e.key === "ArrowRight") lbNav(1);
+    const typing = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
+    if (e.key === "Escape") {
+      if (!$("lbAsk").classList.contains("hidden")) toggleLbAsk(false);
+      else if (!$("lbNotes").classList.contains("hidden")) toggleLbNotes(false);
+      else closeLightbox();
+    } else if (!typing) {
+      if (e.key === "ArrowLeft") lbNav(-1);
+      else if (e.key === "ArrowRight") lbNav(1);
+    }
     return;
   }
   if (e.key === "Escape") $("modelDropdown").classList.add("hidden");

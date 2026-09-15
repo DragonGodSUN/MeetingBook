@@ -9,7 +9,9 @@
 依赖: pip install flask
 """
 import argparse
+import base64
 import hashlib
+import io
 import json
 import os
 import re
@@ -326,7 +328,8 @@ def meeting_detail(m: str) -> dict:
         d = os.path.join(m, sub)
         if os.path.isdir(d):
             for f in sorted(os.listdir(d)):
-                if f == ".gitkeep":
+                # 跳过占位文件与子目录（如留言板侧车目录 .comments）
+                if f == ".gitkeep" or not os.path.isfile(os.path.join(d, f)):
                     continue
                 rel = os.path.relpath(os.path.join(d, f), mb.MEETINGS_ROOT).replace("\\", "/")
                 item = {"name": f, "path": rel}
@@ -529,6 +532,14 @@ def api_attachment_delete(name):
         os.remove(full)
     except OSError as e:
         return jsonify({"error": f"删除失败: {e}"}), 500
+    # 同步清理该图片的留言板 / 问答会话侧车文件
+    for sub in (".comments", ".chat"):
+        try:
+            side = mb.safe_join(m, "attachments", sub, fname + ".json")
+            if os.path.isfile(side):
+                os.remove(side)
+        except (ValueError, OSError):
+            pass
     return jsonify({"ok": True})
 
 
@@ -606,6 +617,376 @@ def api_ask():
     meeting = data.get("meeting") or None
     top_k = int(data.get("top_k", 5))
     tid = start_task("ask", task_ask, question, meeting, top_k)
+    return jsonify({"task": tid})
+
+
+# ---------------- AI 看图问答（多模态 LLM） ----------------
+
+VISION_IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+VISION_INLINE_MAX_BYTES = 6 * 1024 * 1024  # 小于此大小的常见格式直接原样发送
+VISION_MAX_PX = 2048                       # 过大图片压缩到最长边（省 token/带宽）
+
+
+def _image_data_url(path: str) -> str:
+    """图片 → data URL（base64）供多模态模型使用。
+
+    HEIC/HEIF 先转 JPEG；超过 VISION_INLINE_MAX_BYTES 或未知格式的图用 Pillow
+    转码压缩（最长边 VISION_MAX_PX）。SVG 不支持。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".svg":
+        raise RuntimeError("暂不支持 SVG 图片的 AI 问答")
+    mime = VISION_IMAGE_MIME.get(ext)
+    if mime and os.path.getsize(path) <= VISION_INLINE_MAX_BYTES:
+        with open(path, "rb") as f:
+            return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
+    return _image_data_url_pil(path, heic=ext in CONVERT_IMAGE_EXTS)
+
+
+def _image_data_url_pil(path: str, heic: bool) -> str:
+    try:
+        from pillow_heif import register_heif_opener
+        from PIL import Image
+    except ImportError:
+        need = "pillow-heif" if heic else "pillow"
+        raise RuntimeError(
+            f"该图片需要转码但服务器缺少 {need}。请运行: pip install pillow-heif")
+    if heic:
+        register_heif_opener()
+    with Image.open(path) as im:
+        im = im.convert("RGB") if im.mode != "RGB" else im.copy()
+        im.thumbnail((VISION_MAX_PX, VISION_MAX_PX), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=88)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+# ---------------- 图片留言板 ----------------
+
+def _comments_path(meeting: str, fname: str) -> str:
+    """某附件留言板的侧车文件路径：attachments/.comments/<文件名>.json。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    try:
+        return mb.safe_join(m, "attachments", ".comments", fname + ".json")
+    except ValueError:
+        raise ValueError("非法文件名")
+
+
+def _load_comments(path: str) -> list:
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("comments") if isinstance(data, dict) and isinstance(data.get("comments"), list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _save_comments(path: str, fname: str, comments: list) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"file": fname, "comments": comments}, f, ensure_ascii=False, indent=2)
+
+
+COMMENT_TAG_RE = re.compile(r"#([^\s#]{1,20})")
+
+
+def _extract_tags(text: str) -> list:
+    """从留言文本提取 #标签（去重、最多 10 个），如「白板要点 #待办 #重点」。"""
+    tags = []
+    for t in COMMENT_TAG_RE.findall(text):
+        if t not in tags:
+            tags.append(t)
+        if len(tags) >= 10:
+            break
+    return tags
+
+
+@app.get("/api/meeting/<name>/attachment-comments")
+def api_attachment_comments(name):
+    """读取某附件的留言列表。"""
+    try:
+        path = _comments_path(name, _sanitize_filename(request.args.get("file", "")))
+    except (RuntimeError, ValueError) as e:
+        return jsonify({"error": str(e)}), (404 if isinstance(e, RuntimeError) else 400)
+    return jsonify({"comments": _load_comments(path)})
+
+
+@app.post("/api/meeting/<name>/attachment-comments/add")
+def api_attachment_comments_add(name):
+    """为附件追加一条留言 {file, text}。"""
+    data = request.get_json(force=True)
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    text = str(data.get("text") or "").strip()
+    if not fname or not text:
+        return jsonify({"error": "缺少图片或留言内容"}), 400
+    try:
+        path = _comments_path(name, fname)
+        m = mb.pick_meeting(name)
+        if not m or not os.path.isfile(mb.safe_join(m, "attachments", fname)):
+            return jsonify({"error": "图片不存在"}), 404
+    except (RuntimeError, ValueError) as e:
+        return jsonify({"error": str(e)}), (404 if isinstance(e, RuntimeError) else 400)
+    comments = _load_comments(path)
+    comments.append({"id": str(int(time.time() * 1000)), "time": time.strftime("%Y-%m-%d %H:%M"),
+                     "text": text, "tags": _extract_tags(text), "collapsed": False})
+    _save_comments(path, fname, comments)
+    return jsonify({"ok": True, "comments": comments})
+
+
+@app.post("/api/meeting/<name>/attachment-comments/update")
+def api_attachment_comments_update(name):
+    """更新附件留言：{file, id, collapsed?, tags?, all?=true}。
+    all=true 时把 collapsed 应用到该图片的全部留言（收起/展开全部）。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        path = _comments_path(name, _sanitize_filename(str(data.get("file") or "")))
+    except (RuntimeError, ValueError) as e:
+        return jsonify({"error": str(e)}), (404 if isinstance(e, RuntimeError) else 400)
+    comments = _load_comments(path)
+    if not comments:
+        return jsonify({"error": "留言不存在"}), 404
+    targets = comments if data.get("all") else \
+        [c for c in comments if str(c.get("id")) == str(data.get("id") or "")]
+    if not targets:
+        return jsonify({"error": "留言不存在"}), 404
+    if "collapsed" in data:
+        collapsed = bool(data.get("collapsed"))
+        for c in targets:
+            c["collapsed"] = collapsed
+    if "tags" in data and not data.get("all"):
+        tags = data.get("tags")
+        if not isinstance(tags, list):
+            return jsonify({"error": "tags 须为字符串数组"}), 400
+        clean = []
+        for t in tags[:10]:
+            t = re.sub(r"[^\w\u4e00-\u9fff-]", "", str(t)).strip()
+            if t and t not in clean:
+                clean.append(t)
+        targets[0]["tags"] = clean
+    _save_comments(path, str(data.get("file") or ""), comments)
+    return jsonify({"ok": True, "comments": comments})
+
+
+@app.post("/api/meeting/<name>/attachment-comments/delete")
+def api_attachment_comments_delete(name):
+    """删除附件的一条留言 {file, id}。需 confirm=true。"""
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({"error": "缺少确认标记 confirm=true"}), 400
+    try:
+        path = _comments_path(name, _sanitize_filename(str(data.get("file") or "")))
+    except (RuntimeError, ValueError) as e:
+        return jsonify({"error": str(e)}), (404 if isinstance(e, RuntimeError) else 400)
+    cid = str(data.get("id") or "")
+    comments = _load_comments(path)
+    kept = [c for c in comments if str(c.get("id")) != cid]
+    if len(kept) == len(comments):
+        return jsonify({"error": "留言不存在"}), 404
+    _save_comments(path, str(data.get("file") or ""), kept)
+    return jsonify({"ok": True, "comments": kept})
+
+
+# ---------------- AI 看图问答会话 ----------------
+
+def _chat_path(meeting: str, fname: str) -> str:
+    """某附件问答会话的侧车文件路径：attachments/.chat/<文件名>.json。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    try:
+        return mb.safe_join(m, "attachments", ".chat", fname + ".json")
+    except ValueError:
+        raise ValueError("非法文件名")
+
+
+def _load_sessions(path: str) -> list:
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("sessions") if isinstance(data, dict) and isinstance(data.get("sessions"), list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _save_sessions(path: str, fname: str, sessions: list) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"file": fname, "sessions": sessions}, f, ensure_ascii=False, indent=2)
+
+
+def _find_session(sessions: list, sid) -> "dict | None":
+    return next((s for s in sessions if str(s.get("id")) == str(sid or "")), None)
+
+
+def _sorted_sessions(sessions: list) -> list:
+    """会话按最近更新时间倒序（时序排列，最新在前）。"""
+    return sorted(sessions, key=lambda s: str(s.get("updated", "")), reverse=True)
+
+
+def _chat_file_route_guard(name: str, fname: str) -> str:
+    try:
+        return _chat_path(name, fname)
+    except RuntimeError as e:
+        abort(404, description=str(e))
+    except ValueError as e:
+        abort(400, description=str(e))
+
+
+@app.get("/api/meeting/<name>/attachment-chats")
+def api_attachment_chats(name):
+    """读取某附件的全部问答会话（按最近更新倒序）。"""
+    path = _chat_file_route_guard(name, _sanitize_filename(request.args.get("file", "")))
+    return jsonify({"sessions": _sorted_sessions(_load_sessions(path))})
+
+
+@app.post("/api/meeting/<name>/attachment-chats/new")
+def api_attachment_chats_new(name):
+    """新建一个空会话。"""
+    data = request.get_json(silent=True) or {}
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    path = _chat_file_route_guard(name, fname)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    sess = {"id": str(int(time.time() * 1000)),
+            "title": (str(data.get("title") or "").strip() or "新会话")[:30],
+            "created": now, "updated": now, "messages": []}
+    sessions = _load_sessions(path)
+    sessions.append(sess)
+    _save_sessions(path, fname, sessions)
+    return jsonify({"ok": True, "session": sess})
+
+
+@app.post("/api/meeting/<name>/attachment-chats/rename")
+def api_attachment_chats_rename(name):
+    """重命名会话 {file, id, title}。"""
+    data = request.get_json(silent=True) or {}
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    path = _chat_file_route_guard(name, fname)
+    title = str(data.get("title") or "").strip()[:30]
+    if not title:
+        return jsonify({"error": "会话名不能为空"}), 400
+    sessions = _load_sessions(path)
+    sess = _find_session(sessions, data.get("id"))
+    if not sess:
+        return jsonify({"error": "会话不存在"}), 404
+    sess["title"] = title
+    _save_sessions(path, fname, sessions)
+    return jsonify({"ok": True, "session": sess})
+
+
+@app.post("/api/meeting/<name>/attachment-chats/clear")
+def api_attachment_chats_clear(name):
+    """清空会话的全部消息 {file, id}（会话保留，可继续提问）。"""
+    data = request.get_json(silent=True) or {}
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    path = _chat_file_route_guard(name, fname)
+    sessions = _load_sessions(path)
+    sess = _find_session(sessions, data.get("id"))
+    if not sess:
+        return jsonify({"error": "会话不存在"}), 404
+    sess["messages"] = []
+    sess["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    _save_sessions(path, fname, sessions)
+    return jsonify({"ok": True, "session": sess})
+
+
+@app.post("/api/meeting/<name>/attachment-chats/delete")
+def api_attachment_chats_delete(name):
+    """删除会话 {file, id}。需 confirm=true。"""
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({"error": "缺少确认标记 confirm=true"}), 400
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    path = _chat_file_route_guard(name, fname)
+    sessions = _load_sessions(path)
+    kept = [s for s in sessions if str(s.get("id")) != str(data.get("id") or "")]
+    if len(kept) == len(sessions):
+        return jsonify({"error": "会话不存在"}), 404
+    _save_sessions(path, fname, kept)
+    return jsonify({"ok": True})
+
+
+def task_vision_ask(cb, meeting, fname, question, session_id):
+    """多模态 LLM 看图问答：读取会议附件图片，结合会话历史回答。
+
+    会话持久化在 attachments/.chat/<文件名>.json；session_id 不存在时自动
+    新建会话（标题取问题前 20 字），成功后才把本轮问答写回会话。"""
+    m = mb.pick_meeting(meeting)
+    if not m:
+        raise RuntimeError(f"未找到会议: {meeting}")
+    try:
+        full = mb.safe_join(m, "attachments", fname)
+    except ValueError:
+        raise RuntimeError("非法文件名")
+    if not os.path.isfile(full):
+        raise RuntimeError(f"附件不存在: {fname}")
+    cb("preparing", {"file": fname})
+    data_url = _image_data_url(full)
+    content = [{"type": "image_url", "image_url": {"url": data_url}},
+               {"type": "text", "text": question}]
+
+    def now_ts() -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        chat_path = _chat_path(meeting, fname)
+        sessions = _load_sessions(chat_path)
+    except (RuntimeError, ValueError):
+        chat_path, sessions = None, []
+    sess = _find_session(sessions, session_id) if session_id else None
+    if sess is None:
+        sess = {"id": str(int(time.time() * 1000)), "title": question[:20] or "新会话",
+                "created": now_ts(), "updated": now_ts(), "messages": []}
+        sessions.append(sess)
+    msgs = sess.setdefault("messages", [])
+    msgs.append({"role": "user", "content": question, "time": now_ts()})
+    history = [{"role": x.get("role"), "content": x.get("content")}
+               for x in msgs[:-1] if x.get("role") in ("user", "assistant")][-20:]
+
+    system = ("你是会议图片助手。用户会给你一张会议相关的图片（照片/截图/白板等），"
+              "请根据图片内容回答问题。回答用中文，简洁准确；"
+              "图片中看不到或无法确定的信息要明确说明。")
+    cb("llm", {"file": fname})
+
+    def live(kind, piece):
+        if kind == "content":  # 悬浮窗只看正文流
+            cb("live", {"k": "c", "t": str(piece)})
+
+    try:
+        answer = mb.llm_chat(system, content, temperature=0.3, max_tokens=2048,
+                             history=history, on_delta=live)
+    except SystemExit as e:  # get_api_key 未配置 Key 时抛 SystemExit
+        raise RuntimeError(str(e).strip().splitlines()[0] if str(e).strip() else "未配置 API Key")
+    msgs.append({"role": "assistant", "content": answer, "time": now_ts()})
+    sess["updated"] = now_ts()
+    if chat_path:
+        _save_sessions(chat_path, fname, sessions)
+    return {"answer": answer, "session": sess}
+
+
+@app.post("/api/meeting/<name>/attachments/ask")
+def api_attachment_ask(name):
+    """AI 看图问答：对会议附件图片提问（多模态 LLM），会话自动持久化，返回 task。"""
+    m = mb.pick_meeting(name)
+    if not m:
+        return jsonify({"error": "会议不存在"}), 404
+    try:
+        mb.get_api_key()
+    except SystemExit as e:
+        msg = str(e).strip().splitlines()[0] if str(e).strip() else "未配置 API Key"
+        return jsonify({"error": msg}), 400
+    data = request.get_json(force=True)
+    fname = _sanitize_filename(str(data.get("file") or ""))
+    question = (data.get("question") or "").strip()
+    if not fname or not question:
+        return jsonify({"error": "缺少图片或问题"}), 400
+    session_id = str(data.get("session") or "") or None
+    tid = start_task("vision_ask", task_vision_ask, name, fname, question, session_id)
     return jsonify({"task": tid})
 
 
