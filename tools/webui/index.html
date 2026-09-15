@@ -754,7 +754,8 @@ async function saveProps() {
 /* ---------- 任务（转写/摘要/问答） ---------- */
 function startTranscribe() {
   if (!currentMeeting) return;
-  startTask("transcribe", { meeting: currentMeeting, model: "medium" }, "转写中…");
+  const force = confirm("重新转写全部音频（覆盖已有转写）？\n\n点“确定”= 全部重新转写（已转写的也会重转，基于旧转写的修正版将删除）；点“取消”= 只转写未转写的音频。");
+  startTask("transcribe", { meeting: currentMeeting, force }, "转写中…");
 }
 function startCorrect() {
   if (!currentMeeting) return;

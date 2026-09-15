@@ -102,6 +102,12 @@ def task_transcribe(cb, meeting, model, language, force):
         try:
             out = transcribe_audio(os.path.join(audio_dir, f), model_size=model,
                                    language=language, output_dir=t_dir, progress_cb=prog)
+            if force:
+                # 重新转写后，基于旧转写的修正版已失效
+                corr = os.path.join(t_dir, mb.corrected_name_for(os.path.basename(out)))
+                if os.path.isfile(corr):
+                    os.remove(corr)
+                    cb("live", {"k": "s", "t": f"旧转写已覆盖，删除过期修正版: {os.path.basename(corr)}"})
             done.append(os.path.basename(out))
         except Exception as e:  # noqa: BLE001
             failed.append({"file": f, "error": str(e)})

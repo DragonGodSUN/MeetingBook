@@ -613,6 +613,12 @@ def cmd_transcribe(args) -> int:
                                  model_size=args.model,
                                  language=args.language,
                                  output_dir=transcript_dir)
+                if args.force:
+                    # 重新转写后，基于旧转写的修正版已失效
+                    corr = os.path.join(transcript_dir, corrected_name_for(f"{base}-转写.txt"))
+                    if os.path.isfile(corr):
+                        os.remove(corr)
+                        info(f"  已删除旧修正版: {os.path.basename(corr)}（请重新修正）")
                 total += 1
             except Exception as e:
                 err(f"转写失败 {f}: {e}")

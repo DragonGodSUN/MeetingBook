@@ -275,7 +275,7 @@ pip install pillow-heif
 不会。会议数据（音频/转写/纪要）只存在本地 `meetings/`，仓库只含代码。需要迁移时直接复制 `meetings/` 目录（或配置 `MEETINGS_ROOT` 指向共享盘）。
 
 **Q：转写太慢/不准？**
-换大模型：Web 暂固定 medium，CLI 用 `transcribe --model large-v3 --language zh`。显存不足用 `small`。
+换大模型重转：CLI 用 `transcribe --meeting X --force --model large-v3 --language zh`；Web 的「转写音频」按钮可重新转写（点“确定”覆盖全部，固定 medium）。显存不足用 `small`。
 
 **Q：`summarize` / `ask` 报网络错误？**
 检查 `DEEPSEEK_API_KEY` 是否配置、能否访问 `api.deepseek.com`（部分网络需代理，可设 `HTTPS_PROXY` 或换 `DEEPSEEK_BASE_URL` 到兼容服务）。
